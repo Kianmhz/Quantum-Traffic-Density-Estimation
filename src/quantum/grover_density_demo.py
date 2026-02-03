@@ -159,8 +159,10 @@ def estimate_density_quantum(
     # Count measurements that correspond to occupied indices
     occupied_count = 0
     for bitstring, count in counts.items():
-        # Convert bitstring to index (Qiskit uses LSB-first ordering)
-        idx = int(bitstring, 2)
+        # Convert bitstring to index. Qiskit's get_counts returns strings
+        # with qubit-0 as the rightmost char; our oracle used LSB-first
+        # ordering, so reverse the string before converting to integer.
+        idx = int(bitstring[::-1], 2)
         if idx < N and occupancy[idx] == 1:
             occupied_count += count
     
@@ -264,19 +266,25 @@ def main():
     print(f"  Classical density: {classical_density:.4f} ({classical_density*100:.1f}%)")
     
     # Quantum density estimation
-    print(f"\nQuantum Estimation (Grover with {n_iterations} iteration(s)):")
-    
-    quantum_density, counts = estimate_density_quantum(
+    # Baseline uniform sampling (no Grover iterations) to estimate true density
+    uniform_density, uniform_counts = estimate_density_quantum(
+        occupancy, n_iterations=0, shots=shots
+    )
+
+    # Grover-amplified run
+    amplified_prob, amplified_counts = estimate_density_quantum(
         occupancy, n_iterations=n_iterations, shots=shots
     )
-    
-    print(f"  Quantum estimated density: {quantum_density:.4f} ({quantum_density*100:.1f}%)")
+
+    print(f"\nUniform sampling estimated density (n_iterations=0): {uniform_density:.4f} ({uniform_density*100:.1f}%)")
+    print(f"Amplified occupied probability (Grover with {n_iterations} iteration(s)): {amplified_prob:.4f} ({amplified_prob*100:.1f}%)")
     
     # Show top measurement counts
-    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-    print(f"\nTop 10 Measurement Results (out of {len(counts)} unique outcomes):")
+    # Show top measurement counts from the amplified run (correct for endianness)
+    sorted_counts = sorted(amplified_counts.items(), key=lambda x: x[1], reverse=True)
+    print(f"\nTop 10 Measurement Results (amplified run, out of {len(amplified_counts)} unique outcomes):")
     for bitstring, count in sorted_counts[:10]:
-        idx = int(bitstring, 2)
+        idx = int(bitstring[::-1], 2)
         r, c = index_to_rc(idx, cols)
         occ_status = "occupied" if occupancy[idx] == 1 else "empty"
         prob = count / shots
@@ -288,8 +296,9 @@ def main():
     print("Comparison Summary:")
     print("=" * 60)
     print(f"  Classical density:          {classical_density:.4f}")
-    print(f"  Quantum estimated density:  {quantum_density:.4f}")
-    print(f"  Difference:                 {abs(quantum_density - classical_density):.4f}")
+    print(f"  Uniform sampling density:   {uniform_density:.4f}")
+    print(f"  Amplified occupied prob.:   {amplified_prob:.4f}")
+    print(f"  Difference (uniform - classical): {abs(uniform_density - classical_density):.4f}")
     
     # Note about Grover amplification
     print(f"\nNote: With M={num_occupied} marked states out of N={N},")
