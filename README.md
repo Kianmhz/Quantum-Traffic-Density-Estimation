@@ -98,32 +98,69 @@ python -m src.pipeline --image intersection.jpg --output result.png
 
 ## CLI Reference
 
+### Terminal Demo CLI
+
+```
+python -m src.quantum.quantum_counting [OPTIONS]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--rows N` | 4 | Grid rows |
+| `--cols N` | 4 | Grid columns |
+| `--precision N`, `-p` | 4 | QPE precision qubits (try 6 for accuracy) |
+| `--shots N`, `-s` | 2048 | Measurement shots |
+| `--test-m M` | - | Test specific occupancy value M |
+| `--random` | - | Run with random occupancy |
+| `--benchmark` | - | Test all M values from 0 to N |
+| `--quiet`, `-q` | - | Minimal output |
+
+**Examples:**
+```bash
+# Default demo (3 test scenarios)
+python -m src.quantum.quantum_counting
+
+# Benchmark with high precision (shows accuracy for all M)
+python -m src.quantum.quantum_counting --benchmark --precision 6
+
+# Test specific M=5 occupancy
+python -m src.quantum.quantum_counting --test-m 5 -p 6
+
+# Larger grid (8×4 = 32 regions, needs more precision)
+python -m src.quantum.quantum_counting --rows 8 --cols 4 --precision 7 --test-m 10
+
+# Random occupancy test
+python -m src.quantum.quantum_counting --random
+```
+
+### Video Pipeline CLI
+
 ```
 python -m src.pipeline [OPTIONS]
 ```
 
-### Input Options (one required)
+#### Input Options (one required)
 | Flag | Description |
 |------|-------------|
 | `--video PATH` | Path to input video file |
 | `--image PATH` | Path to input image file |
 | `--webcam [ID]` | Use webcam (optional camera ID, default 0) |
 
-### Output Options
+#### Output Options
 | Flag | Description |
 |------|-------------|
 | `--output PATH`, `-o` | Output file path (video or image) |
 | `--no-preview` | Disable live preview window |
 
-### Grid Options
+#### Grid Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--rows N` | 4 | Grid rows |
 | `--cols N` | 4 | Grid columns |
 
-> ⚠️ Grid size (rows × cols) must be a power of 2 (e.g., 16, 32, 64)
+> ⚠️ Grid size (rows × cols) must be a power of 2 (e.g., 16, 32, 64). Search qubits are automatically calculated as log₂(N).
 
-### Quantum Options
+#### Quantum Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--no-quantum` | false | Disable quantum counting (classical only, faster) |
@@ -131,7 +168,7 @@ python -m src.pipeline [OPTIONS]
 | `--shots N` | 1024 | Quantum measurement shots (more = accurate) |
 | `--quantum-every N` | 5 | Run quantum every N frames (1 = every frame) |
 
-### Processing Options
+#### Processing Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--skip-frames N` | 0 | Frames to skip between processing |
@@ -139,13 +176,13 @@ python -m src.pipeline [OPTIONS]
 | `--confidence F` | 0.5 | YOLO confidence threshold (0.0-1.0) |
 | `--device DEV` | cuda | Device for YOLO: `cpu`, `cuda`, or `mps` |
 
-### Logging Options
+#### Logging Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--no-log` | false | Disable CSV logging |
 | `--log-dir PATH` | logs | Directory for log files |
 
-### Examples
+#### Video Pipeline Examples
 
 ```bash
 # Fast mode (no quantum, classical only)
@@ -160,14 +197,14 @@ python -m src.pipeline --video traffic.mp4 --precision 6 --quantum-every 10
 # CPU-only processing
 python -m src.pipeline --video traffic.mp4 --device cpu
 
-# Custom grid (8×8 = 64 regions)
+# Custom grid (8×8 = 64 regions, needs precision 8)
 python -m src.pipeline --video traffic.mp4 --rows 8 --cols 8 --precision 8
 
 # Process first 100 frames only
 python -m src.pipeline --video traffic.mp4 --max-frames 100
 ```
 
-### Keyboard Controls (during video playback)
+#### Keyboard Controls (during video playback)
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
