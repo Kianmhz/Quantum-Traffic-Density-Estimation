@@ -50,3 +50,12 @@ htmlcov/
 
 # Logs
 *.log
+
+# Large files / models
+*.pt
+*.pth
+*.onnx
+*.mp4
+*.avi
+*.mov
+*.mkv

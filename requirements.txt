@@ -1,2 +1,5 @@
 qiskit>=2.0
 qiskit-aer>=0.17
+opencv-python>=4.8
+ultralytics>=8.0
+numpy>=1.24
