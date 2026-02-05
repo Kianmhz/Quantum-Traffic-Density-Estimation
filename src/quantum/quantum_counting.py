@@ -412,18 +412,129 @@ def print_comparison(
 def main():
     """
     Demo: Quantum Counting for traffic density estimation.
+    
+    Run with: python -m src.quantum.quantum_counting [OPTIONS]
     """
-    # Configuration - using 4x4 grid for manageable circuit depth
-    rows = 4
-    cols = 4  # N = 16 for manageable circuit depth
-    image_w = 1920
-    image_h = 1080
-    precision_qubits = 4  # Balance between precision and circuit depth
-    shots = 2048
+    import argparse
+    import random
+    
+    parser = argparse.ArgumentParser(
+        description="Quantum Counting Demo for Traffic Density Estimation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run default demo with 3 test scenarios
+  python -m src.quantum.quantum_counting
+
+  # Custom grid size (must be power of 2)
+  python -m src.quantum.quantum_counting --rows 4 --cols 4
+
+  # Higher precision (more accurate, slower)
+  python -m src.quantum.quantum_counting --precision 6 --shots 2048
+
+  # Test specific occupancy count
+  python -m src.quantum.quantum_counting --test-m 5
+
+  # Random occupancy test
+  python -m src.quantum.quantum_counting --random
+
+  # Quick benchmark across different M values
+  python -m src.quantum.quantum_counting --benchmark
+        """
+    )
+    
+    # Grid options
+    parser.add_argument('--rows', type=int, default=4,
+                       help='Grid rows (default: 4)')
+    parser.add_argument('--cols', type=int, default=4,
+                       help='Grid columns (default: 4)')
+    
+    # Quantum options
+    parser.add_argument('--precision', '-p', type=int, default=4,
+                       help='QPE precision qubits (default: 4, try 6 for accuracy)')
+    parser.add_argument('--shots', '-s', type=int, default=2048,
+                       help='Measurement shots (default: 2048)')
+    
+    # Test modes
+    parser.add_argument('--test-m', type=int, default=None,
+                       help='Test specific M value (number of occupied regions)')
+    parser.add_argument('--random', action='store_true',
+                       help='Run with random occupancy')
+    parser.add_argument('--benchmark', action='store_true',
+                       help='Run benchmark across all M values')
+    parser.add_argument('--quiet', '-q', action='store_true',
+                       help='Minimal output (for benchmarking)')
+    
+    args = parser.parse_args()
+    
+    # Validate grid size
+    N = args.rows * args.cols
+    if N & (N - 1) != 0:
+        parser.error(f"Grid size {args.rows}x{args.cols}={N} must be a power of 2")
+    
+    n_qubits = int(math.log2(N))
     
     print("\n" + "=" * 70)
     print("QUANTUM COUNTING TRAFFIC DENSITY DEMO")
     print("=" * 70)
+    print(f"\nConfiguration:")
+    print(f"  Grid: {args.rows}×{args.cols} = {N} regions")
+    print(f"  Search qubits: {n_qubits}")
+    print(f"  Precision qubits: {args.precision}")
+    print(f"  Shots: {args.shots}")
+    
+    # Mode: Benchmark
+    if args.benchmark:
+        print(f"\n" + "=" * 70)
+        print("BENCHMARK: Testing all M values from 0 to N")
+        print("=" * 70)
+        print(f"\n{'M':>3} | {'Classical':>9} | {'Quantum':>7} | {'Error':>5} | {'Status'}")
+        print("-" * 50)
+        
+        total_error = 0
+        for m in range(N + 1):
+            occ = [1] * m + [0] * (N - m)
+            q, _, _ = quantum_counting(occ, args.precision, args.shots)
+            error = abs(q - m)
+            total_error += error
+            status = "✓" if error == 0 else ("~" if error <= 1 else "✗")
+            print(f"{m:>3} | {m:>9} | {q:>7} | {error:>5} | {status}")
+        
+        avg_error = total_error / (N + 1)
+        print("-" * 50)
+        print(f"Average error: {avg_error:.2f} regions")
+        return
+    
+    # Mode: Test specific M
+    if args.test_m is not None:
+        m = args.test_m
+        if m < 0 or m > N:
+            parser.error(f"--test-m must be between 0 and {N}")
+        
+        print(f"\n" + "=" * 70)
+        print(f"TEST: M = {m} occupied regions")
+        print("=" * 70)
+        
+        occ = [1] * m + [0] * (N - m)
+        random.shuffle(occ)  # Randomize positions
+        print_comparison(occ, args.rows, args.cols, args.precision, args.shots)
+        return
+    
+    # Mode: Random occupancy
+    if args.random:
+        m = random.randint(0, N)
+        print(f"\n" + "=" * 70)
+        print(f"RANDOM TEST: M = {m} occupied regions")
+        print("=" * 70)
+        
+        occ = [1] * m + [0] * (N - m)
+        random.shuffle(occ)
+        print_comparison(occ, args.rows, args.cols, args.precision, args.shots)
+        return
+    
+    # Default mode: Run 3 demo scenarios
+    image_w = 1920
+    image_h = 1080
     
     # Test 1: Moderate density (~30-40%)
     print("\n" + "=" * 70)
@@ -439,8 +550,8 @@ def main():
     ]
     
     print(f"\nSimulated YOLO detections: {len(mock_boxes_moderate)} cars")
-    occupancy_moderate = boxes_to_occupancy(mock_boxes_moderate, rows, cols, image_w, image_h)
-    print_comparison(occupancy_moderate, rows, cols, precision_qubits, shots)
+    occupancy_moderate = boxes_to_occupancy(mock_boxes_moderate, args.rows, args.cols, image_w, image_h)
+    print_comparison(occupancy_moderate, args.rows, args.cols, args.precision, args.shots)
     
     # Test 2: Low density (~20%)
     print("\n\n" + "=" * 70)
@@ -454,8 +565,8 @@ def main():
     ]
     
     print(f"\nSimulated YOLO detections: {len(mock_boxes_low)} cars")
-    occupancy_low = boxes_to_occupancy(mock_boxes_low, rows, cols, image_w, image_h)
-    print_comparison(occupancy_low, rows, cols, precision_qubits, shots)
+    occupancy_low = boxes_to_occupancy(mock_boxes_low, args.rows, args.cols, image_w, image_h)
+    print_comparison(occupancy_low, args.rows, args.cols, args.precision, args.shots)
     
     # Test 3: Higher density (~50-60%)
     print("\n\n" + "=" * 70)
@@ -475,8 +586,8 @@ def main():
     ]
     
     print(f"\nSimulated YOLO detections: {len(mock_boxes_high)} cars")
-    occupancy_high = boxes_to_occupancy(mock_boxes_high, rows, cols, image_w, image_h)
-    print_comparison(occupancy_high, rows, cols, precision_qubits, shots)
+    occupancy_high = boxes_to_occupancy(mock_boxes_high, args.rows, args.cols, image_w, image_h)
+    print_comparison(occupancy_high, args.rows, args.cols, args.precision, args.shots)
 
 
 if __name__ == "__main__":
