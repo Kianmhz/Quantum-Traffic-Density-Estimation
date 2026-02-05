@@ -404,10 +404,10 @@ Examples:
     # Quantum options
     parser.add_argument('--no-quantum', action='store_true',
                        help='Disable quantum counting (faster)')
-    parser.add_argument('--precision', type=int, default=4,
-                       help='QPE precision qubits (default: 4)')
-    parser.add_argument('--shots', type=int, default=512,
-                       help='Quantum measurement shots (default: 512, lower=faster)')
+    parser.add_argument('--precision', type=int, default=6,
+                       help='QPE precision qubits (default: 6, more=accurate but slower)')
+    parser.add_argument('--shots', type=int, default=1024,
+                       help='Quantum measurement shots (default: 1024, more=accurate)')
     parser.add_argument('--quantum-every', type=int, default=5,
                        help='Run quantum counting every N frames (default: 5)')
     

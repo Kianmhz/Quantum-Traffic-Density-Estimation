@@ -126,7 +126,7 @@ def build_grover_operator(n_qubits: int, oracle: QuantumCircuit) -> QuantumCircu
 
 def quantum_counting(
     occupancy: List[int],
-    precision_qubits: int = 4,
+    precision_qubits: int = 6,
     shots: int = 1024
 ) -> Tuple[int, float, Dict[str, int]]:
     """
@@ -138,10 +138,22 @@ def quantum_counting(
     The Grover operator G has eigenvalues e^{±2iθ} where sin(θ) = √(M/N).
     QPE measures the phase 2θ/2π = θ/π, giving us θ from which we compute M.
     
+    PRECISION REQUIREMENTS:
+    -----------------------
+    For accurate estimation, precision_qubits should be at least:
+      - 4 for N=16 (coarse, ~±2 error)
+      - 5 for N=16 (better, ~±1 error)  
+      - 6 for N=16-32 (good, <±1 average error)
+      - 7+ for high accuracy or large N
+    
+    The phase resolution is 1/2^precision_qubits. For small M, the phase
+    angle θ = arcsin(√(M/N)) is small, requiring higher precision.
+    
     Args:
         occupancy: Binary list where 1 = occupied region.
         precision_qubits: Number of qubits for phase estimation precision.
                          More qubits = better precision but deeper circuit.
+                         Default: 6 (64 phase bins, good for N≤32).
         shots: Number of measurement shots.
     
     Returns:
@@ -217,16 +229,27 @@ def quantum_counting(
     # 
     # However, due to finite precision, we should identify pairs of peaks
     # and combine their evidence.
+    #
+    # IMPORTANT PHASE INTERPRETATION:
+    # When the search register starts in |s⟩ (uniform superposition),
+    # the QPE measures phases that appear at 0.5 ± θ/π, where the Grover
+    # eigenvalues are e^{±2iθ} and sin(θ) = √(M/N).
+    #
+    # So: φ_observed ≈ 0.5 + θ/π  or  0.5 - θ/π
+    # Therefore: θ = π × |φ_observed - 0.5|
+    # And: M = N × sin²(θ)
     
     # First, collect raw phase measurements
+    # NOTE: Qiskit returns bitstrings in big-endian order (MSB first),
+    # which directly gives us the integer value without reversal
     phase_counts = {}
     for bitstring, count in counts.items():
-        measured_int = int(bitstring[::-1], 2)
+        measured_int = int(bitstring, 2)  # No reversal needed!
         phi = measured_int / (2 ** precision_qubits)
-        phase_counts[phi] = count
+        phase_counts[phi] = phase_counts.get(phi, 0) + count
     
-    # Group symmetric phases (φ and 1-φ) together
-    # They correspond to the same M value
+    # Group symmetric phases around 0.5 (i.e., φ and 1-φ give same θ)
+    # because |0.5 - φ| = |0.5 - (1-φ)| = |φ - 0.5|
     M_evidence = {}
     processed = set()
     
@@ -234,25 +257,25 @@ def quantum_counting(
         if phi in processed:
             continue
         
-        # Compute M from this phase
-        theta = math.pi * phi
-        M_estimate = N * (math.sin(theta) ** 2)
+        # Compute θ from the offset from 0.5
+        theta = math.pi * abs(phi - 0.5)
+        M_from_phi = N * (math.sin(theta) ** 2)
         
-        # Find the symmetric phase partner
+        # The symmetric phase (1-φ) gives the SAME θ offset from 0.5
         phi_partner = 1.0 - phi
-        # Handle floating point: find closest match
         partner_count = 0
         for p, c in phase_counts.items():
-            if abs(p - phi_partner) < 0.001 and p not in processed:
-                partner_count = c
-                processed.add(p)
+            if abs(p - phi_partner) < 1e-9:  # Exact match for symmetric phase
+                if p not in processed:
+                    partner_count = c
+                    processed.add(p)
                 break
         
         processed.add(phi)
         total_count = count + partner_count
         
-        # Round to nearest integer and accumulate evidence
-        M_rounded = round(M_estimate)
+        # Round to nearest integer
+        M_rounded = round(M_from_phi)
         M_rounded = max(0, min(N, M_rounded))
         
         if M_rounded not in M_evidence:
@@ -268,7 +291,6 @@ def quantum_counting(
     estimated_density = M_estimated / N
     
     return M_estimated, estimated_density, counts
-
 
 def analyze_quantum_counting_results(
     counts: Dict[str, int],
@@ -288,10 +310,11 @@ def analyze_quantum_counting_results(
     """
     results = []
     for bitstring, count in counts.items():
-        # Account for bit reversal in Qiskit measurement
-        measured_int = int(bitstring[::-1], 2)
+        # Qiskit returns big-endian (MSB first), no reversal needed
+        measured_int = int(bitstring, 2)
         phi = measured_int / (2 ** precision_qubits)
-        theta = math.pi * phi
+        # Theta is the offset from 0.5
+        theta = math.pi * abs(phi - 0.5)
         M_estimate = N * (math.sin(theta) ** 2)
         results.append((measured_int, M_estimate, count))
     
