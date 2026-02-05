@@ -50,12 +50,13 @@ htmlcov/
 
 # Logs
 *.log
+logs/
 
-# Large files / models
-*.pt
-*.pth
-*.onnx
+# Screenshots
+screenshot_*.png
+
+# Output videos
 *.mp4
-*.avi
-*.mov
-*.mkv
+
+# Model files
+*.pt

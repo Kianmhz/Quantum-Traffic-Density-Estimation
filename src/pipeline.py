@@ -20,6 +20,7 @@ from src.quantum.quantum_counting import (
     quantum_counting,
     compute_classical_count,
 )
+from src.utils.logging import DensityLogger, FrameLog
 
 # Import video processor (with fallback to mock)
 try:
@@ -45,7 +46,9 @@ def process_video_with_quantum(
     confidence_threshold: float = 0.5,
     use_quantum: bool = True,
     device: str = "cuda",
-    quantum_every_n: int = 5
+    quantum_every_n: int = 5,
+    enable_logging: bool = True,
+    log_dir: str = "logs"
 ):
     """
     Process a video file with quantum traffic density estimation.
@@ -64,6 +67,8 @@ def process_video_with_quantum(
         use_quantum: Whether to run quantum counting (slower).
         device: Device for YOLO ('cpu', 'cuda', 'mps').
         quantum_every_n: Run quantum counting every N frames (1=every frame, 5=every 5th).
+        enable_logging: Whether to log results to CSV.
+        log_dir: Directory for log files.
     """
     # Validate grid size is power of 2
     N = rows * cols
@@ -84,6 +89,25 @@ def process_video_with_quantum(
     if use_quantum:
         print(f"  Precision qubits: {precision_qubits}")
         print(f"  Measurement shots: {shots}")
+        print(f"  Quantum every N frames: {quantum_every_n}")
+    print(f"  Logging: {'Enabled' if enable_logging else 'Disabled'}")
+    
+    # Initialize logger
+    logger = None
+    if enable_logging:
+        video_name = Path(video_path).name
+        logger = DensityLogger(output_dir=log_dir, video_name=video_name)
+        logger.set_config(
+            grid=f"{rows}x{cols}",
+            total_regions=N,
+            quantum_enabled=use_quantum,
+            precision_qubits=precision_qubits,
+            shots=shots,
+            quantum_every_n=quantum_every_n,
+            confidence_threshold=confidence_threshold,
+            device=device,
+            skip_frames=skip_frames
+        )
     
     # Initialize video processor
     print(f"\nInitializing YOLO model...")
@@ -140,6 +164,7 @@ def process_video_with_quantum(
             # Quantum density (run every N frames for performance)
             quantum_density = last_quantum_density
             quantum_count = last_quantum_count
+            quantum_ran_this_frame = False
             
             if use_quantum and frames_since_quantum >= quantum_every_n:
                 quantum_count, quantum_density, _ = quantum_counting(
@@ -150,6 +175,7 @@ def process_video_with_quantum(
                 last_quantum_density = quantum_density
                 last_quantum_count = quantum_count
                 frames_since_quantum = 0
+                quantum_ran_this_frame = True
             else:
                 frames_since_quantum += 1
             
@@ -172,6 +198,21 @@ def process_video_with_quantum(
             # Calculate processing time
             elapsed = time.time() - start_time
             frame_times.append(elapsed)
+            
+            # Log frame data
+            if logger:
+                timestamp_ms = result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
+                logger.log_frame(FrameLog(
+                    frame_number=result.frame_number,
+                    timestamp_ms=timestamp_ms,
+                    num_detections=len(result.detections),
+                    classical_count=classical_count,
+                    classical_density=classical_density,
+                    quantum_count=quantum_count,
+                    quantum_density=quantum_density,
+                    quantum_ran=quantum_ran_this_frame,
+                    processing_time_ms=elapsed * 1000
+                ))
             
             # Print progress
             fps_estimate = 1 / elapsed if elapsed > 0 else 0
@@ -214,6 +255,13 @@ def process_video_with_quantum(
     
     if output_path:
         print(f"Output saved to: {output_path}")
+    
+    # Save and print logging summary
+    if logger:
+        summary_path = logger.save_summary()
+        logger.print_summary()
+        print(f"\nDetailed logs: {logger.csv_path}")
+        print(f"Summary report: {summary_path}")
 
 
 def process_image(
@@ -374,6 +422,12 @@ Examples:
                        choices=['cpu', 'cuda', 'mps'],
                        help='Device for YOLO inference (default: cuda)')
     
+    # Logging options
+    parser.add_argument('--no-log', action='store_true',
+                       help='Disable logging to CSV')
+    parser.add_argument('--log-dir', type=str, default='logs',
+                       help='Directory for log files (default: logs)')
+    
     args = parser.parse_args()
     
     # Validate grid size
@@ -396,7 +450,9 @@ Examples:
             confidence_threshold=args.confidence,
             use_quantum=not args.no_quantum,
             device=args.device,
-            quantum_every_n=args.quantum_every
+            quantum_every_n=args.quantum_every,
+            enable_logging=not args.no_log,
+            log_dir=args.log_dir
         )
     
     elif args.image:
