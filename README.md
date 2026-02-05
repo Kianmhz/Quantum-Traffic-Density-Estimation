@@ -144,7 +144,6 @@ python -m src.pipeline [OPTIONS]
 |------|-------------|
 | `--video PATH` | Path to input video file |
 | `--image PATH` | Path to input image file |
-| `--webcam [ID]` | Use webcam (optional camera ID, default 0) |
 
 #### Output Options
 | Flag | Description |
@@ -364,13 +363,3 @@ Typical accuracy with precision=6 on 16-region grid:
 | High density (M=14) | 14 | 14 | 0 |
 
 Average error: **< 1 region** with proper precision settings.
-
-## Future Work
-
-1. ~~**Video Integration**~~: ✅ YOLO + video pipeline complete
-2. ~~**Visualization**~~: ✅ Grid overlay and density metrics
-3. ~~**Logging**~~: ✅ CSV logging with statistics
-4. **Larger Grids**: Scale to 8×8 (64 regions) or larger
-5. **Real Hardware**: Run on IBM Quantum or other NISQ devices
-6. **Error Mitigation**: Implement techniques for noisy quantum hardware
-7. **Webcam Support**: Real-time processing from camera feed

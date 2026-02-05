@@ -389,8 +389,6 @@ Examples:
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument('--video', type=str, help='Path to input video')
     input_group.add_argument('--image', type=str, help='Path to input image')
-    input_group.add_argument('--webcam', type=int, nargs='?', const=0,
-                            help='Use webcam (optionally specify camera ID)')
     
     # Output options
     parser.add_argument('--output', '-o', type=str, help='Output file path')
@@ -466,10 +464,6 @@ Examples:
             confidence_threshold=args.confidence,
             device=args.device
         )
-    
-    elif args.webcam is not None:
-        print("Webcam processing not yet implemented")
-        # TODO: Implement webcam processing
 
 
 if __name__ == "__main__":
