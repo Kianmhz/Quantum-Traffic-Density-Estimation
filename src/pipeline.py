@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
-
-from src.vision.grid import make_grid
 from src.vision.boxes_to_occupancy import boxes_to_occupancy, directional_occupancy
 from src.vision.visualization import create_visualization
 from src.quantum.quantum_counting import (

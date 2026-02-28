@@ -40,7 +40,6 @@ Capstone/
 │   │   ├── video_processor.py    # YOLO video processing
 │   │   └── visualization.py      # Overlay drawing utilities
 │   ├── quantum/
-│   │   ├── grover_density_demo.py  # Original Grover search demo
 │   │   └── quantum_counting.py     # Quantum counting implementation
 │   ├── utils/
 │   │   └── logging.py            # CSV logging and statistics
