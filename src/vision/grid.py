@@ -63,3 +63,44 @@ def index_to_rc(i: int, cols: int) -> Tuple[int, int]:
     r = i // cols
     c = i % cols
     return (r, c)
+
+
+def get_direction_region_indices(
+    rows: int,
+    cols: int,
+    split: str = "vertical"
+) -> Tuple[List[int], List[int]]:
+    """
+    Split grid region indices into Direction A and Direction B.
+
+    For a vertical split (default):
+        Direction A = left half columns, Direction B = right half columns.
+    For a horizontal split:
+        Direction A = top half rows, Direction B = bottom half rows.
+
+    Args:
+        rows: Number of rows in the grid.
+        cols: Number of columns in the grid.
+        split: Split orientation — "vertical" or "horizontal".
+
+    Returns:
+        (indices_A, indices_B) — lists of linear region indices for each direction.
+    """
+    N = rows * cols
+    indices_A: List[int] = []
+    indices_B: List[int] = []
+
+    for i in range(N):
+        r, c = index_to_rc(i, cols)
+        if split == "vertical":
+            if c < cols // 2:
+                indices_A.append(i)
+            else:
+                indices_B.append(i)
+        else:  # horizontal
+            if r < rows // 2:
+                indices_A.append(i)
+            else:
+                indices_B.append(i)
+
+    return indices_A, indices_B

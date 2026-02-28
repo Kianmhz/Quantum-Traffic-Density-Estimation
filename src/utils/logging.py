@@ -25,6 +25,13 @@ class FrameLog:
     quantum_density: Optional[float]
     quantum_ran: bool  # Whether quantum was computed this frame
     processing_time_ms: float
+    # Per-direction fields (None when direction splitting is disabled)
+    density_A: Optional[float] = None
+    density_B: Optional[float] = None
+    count_A: Optional[int] = None
+    count_B: Optional[int] = None
+    vehicles_A: Optional[int] = None
+    vehicles_B: Optional[int] = None
     
     @property
     def error(self) -> Optional[int]:
@@ -55,6 +62,10 @@ class SessionStats:
     std_error: float = 0.0
     avg_fps: float = 0.0
     total_time_s: float = 0.0
+    # Direction stats
+    avg_density_A: float = 0.0
+    avg_density_B: float = 0.0
+    direction_enabled: bool = False
 
 
 class DensityLogger:
@@ -103,7 +114,9 @@ class DensityLogger:
             'frame_number', 'timestamp_ms', 'num_detections',
             'classical_count', 'classical_density',
             'quantum_count', 'quantum_density', 'quantum_ran',
-            'error', 'relative_error_pct', 'processing_time_ms'
+            'error', 'relative_error_pct', 'processing_time_ms',
+            'density_A', 'density_B', 'count_A', 'count_B',
+            'vehicles_A', 'vehicles_B',
         ]
         
         with open(self.csv_path, 'w', newline='') as f:
@@ -137,7 +150,13 @@ class DensityLogger:
                 log.quantum_ran,
                 log.error if log.error is not None else "",
                 f"{log.relative_error:.2f}" if log.relative_error is not None else "",
-                f"{log.processing_time_ms:.2f}"
+                f"{log.processing_time_ms:.2f}",
+                f"{log.density_A:.4f}" if log.density_A is not None else "",
+                f"{log.density_B:.4f}" if log.density_B is not None else "",
+                log.count_A if log.count_A is not None else "",
+                log.count_B if log.count_B is not None else "",
+                log.vehicles_A if log.vehicles_A is not None else "",
+                log.vehicles_B if log.vehicles_B is not None else "",
             ])
     
     def compute_stats(self) -> SessionStats:
@@ -179,7 +198,17 @@ class DensityLogger:
         total_time = sum(l.processing_time_ms for l in self.logs)
         stats.total_time_s = total_time / 1000
         stats.avg_fps = len(self.logs) / stats.total_time_s if stats.total_time_s > 0 else 0
-        
+
+        # Direction stats
+        dir_logs_A = [l.density_A for l in self.logs if l.density_A is not None]
+        dir_logs_B = [l.density_B for l in self.logs if l.density_B is not None]
+        if dir_logs_A:
+            stats.direction_enabled = True
+            stats.avg_density_A = statistics.mean(dir_logs_A)
+        if dir_logs_B:
+            stats.direction_enabled = True
+            stats.avg_density_B = statistics.mean(dir_logs_B)
+
         return stats
     
     def save_summary(self) -> str:
@@ -219,6 +248,16 @@ class DensityLogger:
             f.write("Density Statistics:\n")
             f.write(f"  Average classical density: {stats.avg_classical_density*100:.2f}%\n")
             f.write(f"  Average quantum density: {stats.avg_quantum_density*100:.2f}%\n\n")
+
+            # Direction comparison
+            if stats.direction_enabled:
+                f.write("Direction Comparison:\n")
+                f.write(f"  Average Direction A density: {stats.avg_density_A*100:.2f}%\n")
+                f.write(f"  Average Direction B density: {stats.avg_density_B*100:.2f}%\n")
+                diff_pp = abs(stats.avg_density_A - stats.avg_density_B) * 100
+                denser = "A" if stats.avg_density_A > stats.avg_density_B else "B" if stats.avg_density_B > stats.avg_density_A else "Equal"
+                f.write(f"  Density difference: {diff_pp:.2f} percentage points\n")
+                f.write(f"  Denser direction: {denser}\n\n")
             
             # Error analysis
             f.write("Quantum Estimation Error Analysis:\n")
@@ -267,5 +306,12 @@ class DensityLogger:
         print(f"  Mean error: {stats.avg_error:.2f} ± {stats.std_error:.2f} regions")
         print(f"  Mean relative error: {stats.avg_relative_error:.2f}%")
         print(f"  Error range: [{stats.min_error}, {stats.max_error}] regions")
+        if stats.direction_enabled:
+            print(f"\nDirection Comparison:")
+            print(f"  Avg Dir A density: {stats.avg_density_A*100:.2f}%")
+            print(f"  Avg Dir B density: {stats.avg_density_B*100:.2f}%")
+            diff_pp = abs(stats.avg_density_A - stats.avg_density_B) * 100
+            denser = "A" if stats.avg_density_A > stats.avg_density_B else "B" if stats.avg_density_B > stats.avg_density_A else "Equal"
+            print(f"  Difference: {diff_pp:.2f}pp (Direction {denser} is denser)")
         print(f"\nLogs saved to: {self.csv_path}")
         print("=" * 60)
