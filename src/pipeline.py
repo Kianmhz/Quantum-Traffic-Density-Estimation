@@ -35,8 +35,8 @@ except ImportError as e:
 
 def process_video_with_quantum(
     video_path: str,
-    rows: int = 4,
-    cols: int = 4,
+    rows: int = 5,
+    cols: int = 5,
     precision_qubits: int = 4,
     shots: int = 512,
     skip_frames: int = 0,
@@ -128,7 +128,7 @@ def process_video_with_quantum(
     last_quantum_density = None
     last_quantum_count = None
     frames_since_quantum = 0
-    target_fps = 30
+    target_fps = 10
     frame_duration = 1.0 / target_fps
     
     try:
@@ -141,7 +141,7 @@ def process_video_with_quantum(
                     break
                 continue
             
-            start_time = time.time()
+            start_time = time.time()  # includes all work: processing + logging + print
             
             # Convert detections to occupancy grid
             occupancy = boxes_to_occupancy(
@@ -199,10 +199,6 @@ def process_video_with_quantum(
                 direction_data=dir_data,
             )
             
-            # Calculate processing time
-            elapsed = time.time() - start_time
-            frame_times.append(elapsed)
-            
             # Log frame data
             if logger:
                 timestamp_ms = result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
@@ -215,7 +211,7 @@ def process_video_with_quantum(
                     quantum_count=quantum_count,
                     quantum_density=quantum_density,
                     quantum_ran=quantum_ran_this_frame,
-                    processing_time_ms=elapsed * 1000,
+                    processing_time_ms=(time.time() - start_time) * 1000,
                     density_A=dir_data["density_A"] if dir_data else None,
                     density_B=dir_data["density_B"] if dir_data else None,
                     count_A=dir_data["count_A"] if dir_data else None,
@@ -224,8 +220,22 @@ def process_video_with_quantum(
                     vehicles_B=len(dir_data["boxes_B"]) if dir_data else None,
                 ))
             
-            # Print progress
-            fps_estimate = 1 / elapsed if elapsed > 0 else 0
+            # Measure processing elapsed (used for the frame-rate limiter)
+            elapsed = time.time() - start_time
+            frame_times.append(elapsed)
+
+            # Show preview
+            cv2.imshow("Quantum Traffic Density", vis_frame)
+            
+            # Cap frame rate to 30 FPS for smooth playback
+            wait_time = max(1, int((frame_duration - elapsed) * 1000))
+            key = cv2.waitKey(wait_time) & 0xFF
+
+            # Total wall time including the sleep — used for accurate fps display
+            frame_wall_time = time.time() - start_time
+            fps_estimate = 1 / frame_wall_time if frame_wall_time > 0 else 0
+
+            # Print progress (after waitKey so fps reflects actual playback rate)
             dir_info = ""
             if dir_data:
                 dir_info = (f"  A={dir_data['density_A']*100:.1f}% "
@@ -236,13 +246,6 @@ def process_video_with_quantum(
                   f"{'Quantum=' + f'{quantum_density*100:.1f}%' if quantum_density else ''}"
                   f"{dir_info} "
                   f"({fps_estimate:.1f} fps)", end="")
-            
-            # Show preview
-            cv2.imshow("Quantum Traffic Density", vis_frame)
-            
-            # Cap frame rate to 30 FPS for smooth playback
-            wait_time = max(1, int((frame_duration - elapsed) * 1000))
-            key = cv2.waitKey(wait_time) & 0xFF
             
             if key == ord('q'):
                 print("\nQuitting...")
@@ -306,7 +309,7 @@ Examples:
 
     # Grid options
     parser.add_argument('--rows', type=int, default=4, help='Grid rows (default: 4)')
-    parser.add_argument('--cols', type=int, default=4, help='Grid columns (default: 4)')
+    parser.add_argument('--cols', type=int, default=8, help='Grid columns (default: 4)')
     
     # Quantum options
     parser.add_argument('--no-quantum', action='store_true',
