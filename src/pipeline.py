@@ -35,12 +35,10 @@ except ImportError as e:
 
 def process_video_with_quantum(
     video_path: str,
-    rows: int = 5,
-    cols: int = 5,
+    rows: int = 4,
+    cols: int = 4,
     precision_qubits: int = 4,
     shots: int = 512,
-    skip_frames: int = 0,
-    max_frames: Optional[int] = None,
     confidence_threshold: float = 0.5,
     use_quantum: bool = True,
     device: str = "cuda",
@@ -49,27 +47,7 @@ def process_video_with_quantum(
     log_dir: str = "logs",
     direction_split: Optional[str] = "vertical",
 ):
-    """
-    Process a video file with quantum traffic density estimation.
-    
-    Args:
-        video_path: Path to input video.
-        rows: Grid rows (must result in power of 2 total regions).
-        cols: Grid columns.
-        precision_qubits: QPE precision qubits.
-        shots: Quantum measurement shots (lower = faster).
-        skip_frames: Frames to skip between processing.
-        max_frames: Maximum frames to process.
-        confidence_threshold: YOLO confidence threshold.
-        use_quantum: Whether to run quantum counting (slower).
-        device: Device for YOLO ('cpu', 'cuda', 'mps').
-        quantum_every_n: Run quantum counting every N frames (1=every frame, 5=every 5th).
-        enable_logging: Whether to log results to CSV.
-        log_dir: Directory for log files.
-        direction_split: Split orientation for direction comparison —
-            "vertical" (left=A, right=B), "horizontal" (top=A, bottom=B),
-            or None to disable direction comparison.
-    """
+
     # Validate grid size is power of 2
     N = rows * cols
     if N & (N - 1) != 0:
@@ -107,7 +85,6 @@ def process_video_with_quantum(
             quantum_every_n=quantum_every_n,
             confidence_threshold=confidence_threshold,
             device=device,
-            skip_frames=skip_frames,
             direction_split=direction_split if direction_split else "none",
         )
     
@@ -120,11 +97,12 @@ def process_video_with_quantum(
     
     # Process frames
     print(f"\nProcessing video...")
-    print("Press 'q' to quit, 'p' to pause, 's' to save screenshot")
+    print("Press 'q' to quit, 'p' to pause, 'h' to hide/show panels, 's' to save screenshot")
     print("-" * 60)
     
     frame_times = []
     paused = False
+    show_info = True          # Toggle with 'h'
     last_quantum_density = None
     last_quantum_count = None
     frames_since_quantum = 0
@@ -132,7 +110,7 @@ def process_video_with_quantum(
     frame_duration = 1.0 / target_fps
     
     try:
-        for result in processor.process_video(video_path, skip_frames=skip_frames, max_frames=max_frames):
+        for result in processor.process_video(video_path):
             if paused:
                 key = cv2.waitKey(0) & 0xFF
                 if key == ord('p'):
@@ -197,6 +175,7 @@ def process_video_with_quantum(
                 labels=labels,
                 confidences=confidences,
                 direction_data=dir_data,
+                show_info=show_info,
             )
             
             # Log frame data
@@ -252,6 +231,8 @@ def process_video_with_quantum(
                 break
             elif key == ord('p'):
                 paused = True
+            elif key == ord('h'):
+                show_info = not show_info
             elif key == ord('s'):
                 screenshot_path = f"screenshot_{result.frame_number}.png"
                 cv2.imwrite(screenshot_path, vis_frame)
@@ -279,29 +260,6 @@ def main():
     parser = argparse.ArgumentParser(
         description="Quantum Traffic Density Estimation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Process a video with quantum counting
-  python -m src.pipeline --video traffic.mp4
-
-  # Process video without quantum (faster, classical only)
-  python -m src.pipeline --video traffic.mp4 --no-quantum
-
-  # Use GPU for YOLO inference
-  python -m src.pipeline --video traffic.mp4 --device cuda
-
-  # Custom grid size (must be power of 2)
-  python -m src.pipeline --video traffic.mp4 --rows 8 --cols 8
-
-  # Compare Direction A vs B with a vertical split (left/right)
-  python -m src.pipeline --video traffic.mp4 --split vertical
-
-  # Horizontal split (top = A, bottom = B)
-  python -m src.pipeline --video traffic.mp4 --split horizontal
-
-  # Disable direction comparison
-  python -m src.pipeline --video traffic.mp4 --no-direction
-        """
     )
     
     # Input
@@ -322,12 +280,6 @@ Examples:
                        help='Run quantum counting every N frames (default: 5)')
     
     # Processing options
-    parser.add_argument('--skip-frames', type=int, default=0,
-                       help='Frames to skip between processing (default: 0)')
-    parser.add_argument('--max-frames', type=int, default=None,
-                       help='Maximum frames to process')
-    parser.add_argument('--confidence', type=float, default=0.5,
-                       help='YOLO confidence threshold (default: 0.5)')
     parser.add_argument('--device', type=str, default='cuda',
                        choices=['cpu', 'cuda', 'mps'],
                        help='Device for YOLO inference (default: cuda)')
@@ -362,9 +314,6 @@ Examples:
         cols=args.cols,
         precision_qubits=args.precision,
         shots=args.shots,
-        skip_frames=args.skip_frames,
-        max_frames=args.max_frames,
-        confidence_threshold=args.confidence,
         use_quantum=not args.no_quantum,
         device=args.device,
         quantum_every_n=args.quantum_every,
