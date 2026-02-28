@@ -137,6 +137,8 @@ def process_video_with_quantum(
     last_quantum_density = None
     last_quantum_count = None
     frames_since_quantum = 0
+    target_fps = 30
+    frame_duration = 1.0 / target_fps
     
     try:
         for result in processor.process_video(video_path, skip_frames=skip_frames, max_frames=max_frames):
@@ -225,7 +227,10 @@ def process_video_with_quantum(
             # Show preview
             if show_preview:
                 cv2.imshow("Quantum Traffic Density", vis_frame)
-                key = cv2.waitKey(1) & 0xFF
+                
+                # Cap frame rate to 30 FPS for smooth playback
+                wait_time = max(1, int((frame_duration - elapsed) * 1000))
+                key = cv2.waitKey(wait_time) & 0xFF
                 
                 if key == ord('q'):
                     print("\nQuitting...")
