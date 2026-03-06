@@ -110,7 +110,18 @@ def process_video_with_quantum(
     last_quantum_density = None
     last_quantum_count = None
     last_quantum_metrics = None  # QuantumMetrics from most recent quantum run
-    frames_since_quantum = 0
+    frames_since_calc = 0          # frames elapsed since last classical+quantum pair
+
+    # Last known display values (shown every frame in visualization)
+    last_classical_count = 0
+    last_classical_density = 0.0
+
+    # Classical snapshot stored at quantum submission time (for paired logging)
+    pending_classical_count: Optional[int] = None
+    pending_classical_density: Optional[float] = None
+    pending_dir_data = None
+    pending_timestamp_ms: Optional[float] = None
+
     target_fps = 10
     frame_duration = 1.0 / target_fps
 
@@ -131,18 +142,12 @@ def process_video_with_quantum(
             
             start_time = time.time()  # includes all work: processing + logging + print
             
-            # Convert detections to occupancy grid
+            # Always build occupancy grid and direction data (needed for visualization every frame)
             occupancy = boxes_to_occupancy(
                 result.boxes_xyxy,
                 rows, cols,
                 info['width'], info['height']
             )
-            
-            # Classical density (always computed - fast)
-            classical_count = compute_classical_count(occupancy)
-            classical_density = classical_count / N
-            
-            # Per-direction density
             dir_data = None
             if direction_split:
                 dir_data = directional_occupancy(
@@ -152,39 +157,58 @@ def process_video_with_quantum(
                     split=direction_split,
                 )
 
-            # Quantum density (run every N frames for performance)
-            quantum_density = last_quantum_density
-            quantum_count = last_quantum_count
-            quantum_metrics = last_quantum_metrics
-            quantum_ran_this_frame = False
+            # ── Decide whether to trigger a new classical+quantum computation ──
+            # Trigger when N frames have elapsed AND no quantum job is still running
+            # (so classical and quantum always see the exact same occupancy snapshot)
+            trigger = frames_since_calc >= quantum_every_n and (
+                not use_quantum or quantum_future is None
+            )
 
-            # Poll: collect result if the background job finished
-            if quantum_future is not None and quantum_future.done():
-                try:
-                    last_quantum_count, last_quantum_density, last_quantum_metrics = quantum_future.result()
-                    quantum_density = last_quantum_density
-                    quantum_count = last_quantum_count
-                    quantum_metrics = last_quantum_metrics
-                    quantum_ran_this_frame = True
-                except Exception as _qe:
-                    print(f"\nQuantum error: {_qe}")
-                finally:
-                    quantum_future = None
+            if trigger:
+                # Classical density on this frame's occupancy
+                last_classical_count = compute_classical_count(occupancy)
+                last_classical_density = last_classical_count / N
 
-            # Submit a new quantum job when due and no job is running
-            if use_quantum and frames_since_quantum >= quantum_every_n:
-                if quantum_future is None:  # previous job already collected
-                    _occ_snapshot = list(occupancy)  # capture before next frame mutates it
+                # Save snapshot for paired logging when quantum result arrives
+                pending_classical_count = last_classical_count
+                pending_classical_density = last_classical_density
+                pending_dir_data = dir_data  # already computed above
+                pending_timestamp_ms = (
+                    result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
+                )
+
+                # Submit quantum job on the SAME occupancy snapshot
+                if use_quantum:
+                    _occ_snapshot = list(occupancy)
                     quantum_future = quantum_executor.submit(
                         quantum_counting,
                         _occ_snapshot,
                         precision_qubits,
                         shots
                     )
-                    frames_since_quantum = 0
-                # else: job still running, just wait another frame
+
+                frames_since_calc = 0
             else:
-                frames_since_quantum += 1
+                frames_since_calc += 1
+
+            # Use last known classical values for visualization every frame
+            classical_count = last_classical_count
+            classical_density = last_classical_density
+
+            # Poll: collect quantum result if background job finished
+            quantum_ran_this_frame = False
+            if quantum_future is not None and quantum_future.done():
+                try:
+                    last_quantum_count, last_quantum_density, last_quantum_metrics = quantum_future.result()
+                    quantum_ran_this_frame = True
+                except Exception as _qe:
+                    print(f"\nQuantum error: {_qe}")
+                finally:
+                    quantum_future = None
+
+            quantum_density = last_quantum_density
+            quantum_count = last_quantum_count
+            quantum_metrics = last_quantum_metrics
             
             # Create visualization
             labels = [d.class_name for d in result.detections]
@@ -204,44 +228,60 @@ def process_video_with_quantum(
                 show_info=show_info,
             )
             
-            # Log frame data
+            # Log frame data — only when a matched classical+quantum pair is ready
             if logger:
-                timestamp_ms = result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
-                
-                # Compute derived comparison fields
-                density_diff = None
-                count_agree = None
-                if quantum_density is not None:
-                    density_diff = quantum_density - classical_density
-                if quantum_count is not None:
-                    count_agree = (quantum_count == classical_count)
-                
-                # Quantum metrics (from latest quantum run, or None)
-                qm = quantum_metrics
-                
-                logger.log_frame(FrameLog(
-                    timestamp_ms=timestamp_ms,
-                    num_detections=len(result.detections),
-                    classical_count=classical_count,
-                    classical_density=classical_density,
-                    quantum_count=quantum_count,
-                    quantum_density=quantum_density,
-                    # Direction density
-                    density_A=dir_data["density_A"] if dir_data else None,
-                    density_B=dir_data["density_B"] if dir_data else None,
-                    vehicles_A=len(dir_data["boxes_A"]) if dir_data else None,
-                    vehicles_B=len(dir_data["boxes_B"]) if dir_data else None,
-                    # Timing
-                    quantum_execution_time_ms=qm.quantum_execution_time_ms if qm and quantum_ran_this_frame else None,
-                    # Quantum vs Classical comparison
-                    density_difference=density_diff,
-                    count_agreement=count_agree,
-                    # Theoretical speedup
-                    grid_size_N=N,
-                    classical_queries_O_N=qm.classical_queries_O_N if qm else N,
-                    quantum_queries_O_sqrtN=qm.quantum_queries_O_sqrtN if qm else None,
-                    theoretical_speedup=qm.theoretical_speedup if qm else None,
-                ))
+                if use_quantum and quantum_ran_this_frame and pending_classical_count is not None:
+                    # Paired log: classical snapshot from submission time + quantum result
+                    qm = last_quantum_metrics
+                    density_diff = (
+                        last_quantum_density - pending_classical_density
+                        if last_quantum_density is not None else None
+                    )
+                    count_agree = (
+                        last_quantum_count == pending_classical_count
+                        if last_quantum_count is not None else None
+                    )
+                    logger.log_frame(FrameLog(
+                        timestamp_ms=pending_timestamp_ms,
+                        num_detections=len(result.detections),
+                        classical_count=pending_classical_count,
+                        classical_density=pending_classical_density,
+                        quantum_count=last_quantum_count,
+                        quantum_density=last_quantum_density,
+                        density_A=pending_dir_data["density_A"] if pending_dir_data else None,
+                        density_B=pending_dir_data["density_B"] if pending_dir_data else None,
+                        vehicles_A=len(pending_dir_data["boxes_A"]) if pending_dir_data else None,
+                        vehicles_B=len(pending_dir_data["boxes_B"]) if pending_dir_data else None,
+                        quantum_execution_time_ms=qm.quantum_execution_time_ms if qm else None,
+                        density_difference=density_diff,
+                        count_agreement=count_agree,
+                        grid_size_N=N,
+                        classical_queries_O_N=qm.classical_queries_O_N if qm else N,
+                        quantum_queries_O_sqrtN=qm.quantum_queries_O_sqrtN if qm else None,
+                        theoretical_speedup=qm.theoretical_speedup if qm else None,
+                    ))
+                    pending_classical_count = None  # consumed — wait for next trigger
+                elif not use_quantum and trigger:
+                    # Classical-only logging (no quantum)
+                    logger.log_frame(FrameLog(
+                        timestamp_ms=pending_timestamp_ms,
+                        num_detections=len(result.detections),
+                        classical_count=last_classical_count,
+                        classical_density=last_classical_density,
+                        quantum_count=None,
+                        quantum_density=None,
+                        density_A=dir_data["density_A"] if dir_data else None,
+                        density_B=dir_data["density_B"] if dir_data else None,
+                        vehicles_A=len(dir_data["boxes_A"]) if dir_data else None,
+                        vehicles_B=len(dir_data["boxes_B"]) if dir_data else None,
+                        quantum_execution_time_ms=None,
+                        density_difference=None,
+                        count_agreement=None,
+                        grid_size_N=N,
+                        classical_queries_O_N=N,
+                        quantum_queries_O_sqrtN=None,
+                        theoretical_speedup=None,
+                    ))
             
             # Measure processing elapsed (used for the frame-rate limiter)
             elapsed = time.time() - start_time
@@ -325,7 +365,7 @@ def main():
     parser.add_argument('--shots', type=int, default=1024,
                        help='Quantum measurement shots (default: 1024, more=accurate)')
     parser.add_argument('--quantum-every', type=int, default=5,
-                       help='Run quantum counting every N frames (default: 5)')
+                       help='Run quantum+classical counting every N frames (default: 5)')
     
     # Processing options
     parser.add_argument('--device', type=str, default='cuda',
