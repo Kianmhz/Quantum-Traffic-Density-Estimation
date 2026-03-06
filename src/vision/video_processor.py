@@ -35,6 +35,7 @@ class FrameResult:
     frame_number: int
     detections: List[Detection]
     boxes_xyxy: List[Tuple[int, int, int, int]]
+    inference_time_ms: float = 0.0  # YOLO inference time
 
 
 class VideoProcessor:
@@ -135,14 +136,18 @@ class VideoProcessor:
         Returns:
             FrameResult with detections and bounding boxes.
         """
+        import time as _time
+        t0 = _time.perf_counter()
         detections = self.detect_vehicles(frame)
+        inference_ms = (_time.perf_counter() - t0) * 1000
         boxes_xyxy = [d.bbox for d in detections]
         
         return FrameResult(
             frame=frame,
             frame_number=frame_number,
             detections=detections,
-            boxes_xyxy=boxes_xyxy
+            boxes_xyxy=boxes_xyxy,
+            inference_time_ms=inference_ms,
         )
     
     def process_video(
@@ -302,7 +307,8 @@ class MockVideoProcessor:
             frame=frame,
             frame_number=frame_number,
             detections=detections,
-            boxes_xyxy=boxes_xyxy
+            boxes_xyxy=boxes_xyxy,
+            inference_time_ms=0.0,
         )
     
     def process_video(self, video_path: str, **kwargs):

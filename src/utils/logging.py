@@ -5,6 +5,7 @@ Provides CSV logging and summary statistics for analysis.
 """
 
 import csv
+import math
 import os
 from datetime import datetime
 from pathlib import Path
@@ -16,22 +17,27 @@ import statistics
 @dataclass
 class FrameLog:
     """Log entry for a single frame."""
-    frame_number: int
     timestamp_ms: float
     num_detections: int
     classical_count: int
     classical_density: float
     quantum_count: Optional[int]
     quantum_density: Optional[float]
-    quantum_ran: bool  # Whether quantum was computed this frame
-    processing_time_ms: float
-    # Per-direction fields (None when direction splitting is disabled)
+    # --- Direction density ---
     density_A: Optional[float] = None
     density_B: Optional[float] = None
-    count_A: Optional[int] = None
-    count_B: Optional[int] = None
     vehicles_A: Optional[int] = None
     vehicles_B: Optional[int] = None
+    # --- Timing ---
+    quantum_execution_time_ms: Optional[float] = None
+    # --- Quantum vs Classical comparison ---
+    density_difference: Optional[float] = None      # quantum - classical (signed)
+    count_agreement: Optional[bool] = None           # quantum == classical
+    # --- Theoretical speedup ---
+    grid_size_N: Optional[int] = None
+    classical_queries_O_N: Optional[int] = None
+    quantum_queries_O_sqrtN: Optional[float] = None
+    theoretical_speedup: Optional[float] = None
     
     @property
     def error(self) -> Optional[int]:
@@ -60,12 +66,15 @@ class SessionStats:
     max_error: int = 0
     min_error: int = 0
     std_error: float = 0.0
-    avg_fps: float = 0.0
     total_time_s: float = 0.0
-    # Direction stats
-    avg_density_A: float = 0.0
-    avg_density_B: float = 0.0
-    direction_enabled: bool = False
+    # Timing
+    avg_quantum_time_ms: float = 0.0
+    # Quantum vs Classical agreement
+    agreement_rate: float = 0.0     # % of quantum frames where counts match
+    avg_density_difference: float = 0.0
+    # Theoretical speedup (constant per session)
+    grid_size_N: int = 0
+    theoretical_speedup: float = 0.0
 
 
 class DensityLogger:
@@ -98,8 +107,8 @@ class DensityLogger:
         self.session_name = session_name
         self.video_name = video_name or "unknown"
         
-        # Create CSV file
-        self.csv_path = self.output_dir / f"density_log_{session_name}.csv"
+        # Fixed CSV file – overwritten on every run
+        self.csv_path = self.output_dir / "data.csv"
         self.logs: List[FrameLog] = []
         
         # Initialize CSV with headers
@@ -111,12 +120,19 @@ class DensityLogger:
     def _init_csv(self):
         """Initialize CSV file with headers."""
         headers = [
-            'frame_number', 'timestamp_ms', 'num_detections',
+            'timestamp_ms', 'num_detections',
             'classical_count', 'classical_density',
-            'quantum_count', 'quantum_density', 'quantum_ran',
-            'error', 'relative_error_pct', 'processing_time_ms',
-            'density_A', 'density_B', 'count_A', 'count_B',
-            'vehicles_A', 'vehicles_B',
+            'quantum_count', 'quantum_density',
+            'error', 'relative_error_pct',
+            # Direction density
+            'density_A', 'density_B', 'vehicles_A', 'vehicles_B',
+            # Timing
+            'quantum_execution_time_ms',
+            # Quantum vs Classical comparison
+            'density_difference', 'count_agreement',
+            # Theoretical speedup
+            'grid_size_N', 'classical_queries_O_N',
+            'quantum_queries_O_sqrtN', 'theoretical_speedup',
         ]
         
         with open(self.csv_path, 'w', newline='') as f:
@@ -140,23 +156,29 @@ class DensityLogger:
         with open(self.csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
-                log.frame_number,
                 f"{log.timestamp_ms:.2f}",
                 log.num_detections,
                 log.classical_count,
                 f"{log.classical_density:.4f}",
                 log.quantum_count if log.quantum_count is not None else "",
                 f"{log.quantum_density:.4f}" if log.quantum_density is not None else "",
-                log.quantum_ran,
                 log.error if log.error is not None else "",
                 f"{log.relative_error:.2f}" if log.relative_error is not None else "",
-                f"{log.processing_time_ms:.2f}",
+                # Direction density
                 f"{log.density_A:.4f}" if log.density_A is not None else "",
                 f"{log.density_B:.4f}" if log.density_B is not None else "",
-                log.count_A if log.count_A is not None else "",
-                log.count_B if log.count_B is not None else "",
                 log.vehicles_A if log.vehicles_A is not None else "",
                 log.vehicles_B if log.vehicles_B is not None else "",
+                # Timing
+                f"{log.quantum_execution_time_ms:.2f}" if log.quantum_execution_time_ms is not None else "",
+                # Quantum vs Classical comparison
+                f"{log.density_difference:.4f}" if log.density_difference is not None else "",
+                log.count_agreement if log.count_agreement is not None else "",
+                # Theoretical speedup
+                log.grid_size_N if log.grid_size_N is not None else "",
+                log.classical_queries_O_N if log.classical_queries_O_N is not None else "",
+                f"{log.quantum_queries_O_sqrtN:.2f}" if log.quantum_queries_O_sqrtN is not None else "",
+                f"{log.theoretical_speedup:.2f}" if log.theoretical_speedup is not None else "",
             ])
     
     def compute_stats(self) -> SessionStats:
@@ -168,7 +190,7 @@ class DensityLogger:
         stats.total_frames = len(self.logs)
         
         # Filter frames where quantum was computed
-        quantum_logs = [l for l in self.logs if l.quantum_ran and l.quantum_count is not None]
+        quantum_logs = [l for l in self.logs if l.quantum_count is not None]
         stats.quantum_frames = len(quantum_logs)
         
         # Classical stats
@@ -194,20 +216,26 @@ class DensityLogger:
             if rel_errors:
                 stats.avg_relative_error = statistics.mean(rel_errors)
         
-        # Timing stats
-        total_time = sum(l.processing_time_ms for l in self.logs)
-        stats.total_time_s = total_time / 1000
-        stats.avg_fps = len(self.logs) / stats.total_time_s if stats.total_time_s > 0 else 0
+        # Quantum timing
+        q_times = [l.quantum_execution_time_ms for l in self.logs if l.quantum_execution_time_ms is not None]
+        if q_times:
+            stats.avg_quantum_time_ms = statistics.mean(q_times)
 
-        # Direction stats
-        dir_logs_A = [l.density_A for l in self.logs if l.density_A is not None]
-        dir_logs_B = [l.density_B for l in self.logs if l.density_B is not None]
-        if dir_logs_A:
-            stats.direction_enabled = True
-            stats.avg_density_A = statistics.mean(dir_logs_A)
-        if dir_logs_B:
-            stats.direction_enabled = True
-            stats.avg_density_B = statistics.mean(dir_logs_B)
+        # Quantum vs Classical agreement
+        if quantum_logs:
+            agreements = [l.count_agreement for l in quantum_logs if l.count_agreement is not None]
+            if agreements:
+                stats.agreement_rate = sum(1 for a in agreements if a) / len(agreements) * 100
+            diffs = [l.density_difference for l in quantum_logs if l.density_difference is not None]
+            if diffs:
+                stats.avg_density_difference = statistics.mean(diffs)
+
+        # Theoretical speedup (constant per session — take from first log that has it)
+        for l in self.logs:
+            if l.grid_size_N is not None:
+                stats.grid_size_N = l.grid_size_N
+                stats.theoretical_speedup = l.theoretical_speedup or 0.0
+                break
 
         return stats
     
@@ -241,23 +269,22 @@ class DensityLogger:
             f.write("Processing Statistics:\n")
             f.write(f"  Total frames processed: {stats.total_frames}\n")
             f.write(f"  Frames with quantum counting: {stats.quantum_frames}\n")
-            f.write(f"  Total processing time: {stats.total_time_s:.2f}s\n")
-            f.write(f"  Average FPS: {stats.avg_fps:.2f}\n\n")
+            f.write(f"  Average quantum execution time: {stats.avg_quantum_time_ms:.2f}ms\n\n")
             
             # Density stats
             f.write("Density Statistics:\n")
             f.write(f"  Average classical density: {stats.avg_classical_density*100:.2f}%\n")
-            f.write(f"  Average quantum density: {stats.avg_quantum_density*100:.2f}%\n\n")
+            f.write(f"  Average quantum density: {stats.avg_quantum_density*100:.2f}%\n")
+            f.write(f"  Average density difference: {stats.avg_density_difference*100:.2f} pp\n")
+            f.write(f"  Count agreement rate: {stats.agreement_rate:.1f}%\n\n")
 
-            # Direction comparison
-            if stats.direction_enabled:
-                f.write("Direction Comparison:\n")
-                f.write(f"  Average Direction A density: {stats.avg_density_A*100:.2f}%\n")
-                f.write(f"  Average Direction B density: {stats.avg_density_B*100:.2f}%\n")
-                diff_pp = abs(stats.avg_density_A - stats.avg_density_B) * 100
-                denser = "A" if stats.avg_density_A > stats.avg_density_B else "B" if stats.avg_density_B > stats.avg_density_A else "Equal"
-                f.write(f"  Density difference: {diff_pp:.2f} percentage points\n")
-                f.write(f"  Denser direction: {denser}\n\n")
+            # Theoretical speedup
+            f.write("Theoretical Quantum Speedup:\n")
+            f.write(f"  Grid size N: {stats.grid_size_N}\n")
+            f.write(f"  Classical queries: O(N) = {stats.grid_size_N}\n")
+            sqrt_n = math.sqrt(stats.grid_size_N) if stats.grid_size_N > 0 else 0
+            f.write(f"  Quantum queries: O(sqrt(N)) = {sqrt_n:.1f}\n")
+            f.write(f"  Theoretical speedup: {stats.theoretical_speedup:.1f}x\n\n")
             
             # Error analysis
             f.write("Quantum Estimation Error Analysis:\n")
@@ -269,7 +296,7 @@ class DensityLogger:
             
             # Error distribution
             if self.logs:
-                quantum_logs = [l for l in self.logs if l.quantum_ran and l.error is not None]
+                quantum_logs = [l for l in self.logs if l.quantum_count is not None and l.error is not None]
                 if quantum_logs:
                     f.write("Error Distribution:\n")
                     error_counts = {}
@@ -298,20 +325,18 @@ class DensityLogger:
         print("=" * 60)
         print(f"Total frames: {stats.total_frames}")
         print(f"Quantum frames: {stats.quantum_frames}")
-        print(f"Average FPS: {stats.avg_fps:.2f}")
+        print(f"Avg quantum execution: {stats.avg_quantum_time_ms:.2f}ms")
         print(f"\nDensity Comparison:")
         print(f"  Classical avg: {stats.avg_classical_density*100:.2f}%")
         print(f"  Quantum avg:   {stats.avg_quantum_density*100:.2f}%")
+        print(f"  Avg difference: {stats.avg_density_difference*100:.2f} pp")
+        print(f"  Agreement rate: {stats.agreement_rate:.1f}%")
+        print(f"\nTheoretical Speedup:")
+        sqrt_n = math.sqrt(stats.grid_size_N) if stats.grid_size_N > 0 else 0
+        print(f"  Grid N={stats.grid_size_N}: O(N)={stats.grid_size_N} vs O(√N)={sqrt_n:.1f} → {stats.theoretical_speedup:.1f}x")
         print(f"\nQuantum Error Analysis:")
         print(f"  Mean error: {stats.avg_error:.2f} ± {stats.std_error:.2f} regions")
         print(f"  Mean relative error: {stats.avg_relative_error:.2f}%")
         print(f"  Error range: [{stats.min_error}, {stats.max_error}] regions")
-        if stats.direction_enabled:
-            print(f"\nDirection Comparison:")
-            print(f"  Avg Dir A density: {stats.avg_density_A*100:.2f}%")
-            print(f"  Avg Dir B density: {stats.avg_density_B*100:.2f}%")
-            diff_pp = abs(stats.avg_density_A - stats.avg_density_B) * 100
-            denser = "A" if stats.avg_density_A > stats.avg_density_B else "B" if stats.avg_density_B > stats.avg_density_A else "Equal"
-            print(f"  Difference: {diff_pp:.2f}pp (Direction {denser} is denser)")
         print(f"\nLogs saved to: {self.csv_path}")
         print("=" * 60)

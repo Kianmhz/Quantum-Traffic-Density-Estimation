@@ -17,6 +17,7 @@ from src.vision.visualization import create_visualization
 from src.quantum.quantum_counting import (
     quantum_counting,
     compute_classical_count,
+    QuantumMetrics,
 )
 from src.utils.logging import DensityLogger, FrameLog
 
@@ -101,8 +102,14 @@ def process_video_with_quantum(
     frame_times = []
     paused = False
     show_info = True          # Toggle with 'h'
+
+    # Create fullscreen window (scales frame to fill display)
+    cv2.namedWindow("Quantum Traffic Density", cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("Quantum Traffic Density", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
     last_quantum_density = None
     last_quantum_count = None
+    last_quantum_metrics = None  # QuantumMetrics from most recent quantum run
     frames_since_quantum = 0
     target_fps = 10
     frame_duration = 1.0 / target_fps
@@ -125,6 +132,7 @@ def process_video_with_quantum(
                 rows, cols,
                 info['width'], info['height']
             )
+            yolo_time_ms = result.inference_time_ms if hasattr(result, 'inference_time_ms') else None
             
             # Classical density (always computed - fast)
             classical_count = compute_classical_count(occupancy)
@@ -143,16 +151,18 @@ def process_video_with_quantum(
             # Quantum density (run every N frames for performance)
             quantum_density = last_quantum_density
             quantum_count = last_quantum_count
+            quantum_metrics = last_quantum_metrics
             quantum_ran_this_frame = False
             
             if use_quantum and frames_since_quantum >= quantum_every_n:
-                quantum_count, quantum_density, _ = quantum_counting(
+                quantum_count, quantum_density, quantum_metrics = quantum_counting(
                     occupancy,
                     precision_qubits=precision_qubits,
                     shots=shots
                 )
                 last_quantum_density = quantum_density
                 last_quantum_count = quantum_count
+                last_quantum_metrics = quantum_metrics
                 frames_since_quantum = 0
                 quantum_ran_this_frame = True
             else:
@@ -178,23 +188,42 @@ def process_video_with_quantum(
             
             # Log frame data
             if logger:
+                processing_ms = (time.time() - start_time) * 1000
                 timestamp_ms = result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
+                
+                # Compute derived comparison fields
+                density_diff = None
+                count_agree = None
+                if quantum_density is not None:
+                    density_diff = quantum_density - classical_density
+                if quantum_count is not None:
+                    count_agree = (quantum_count == classical_count)
+                
+                # Quantum metrics (from latest quantum run, or None)
+                qm = quantum_metrics
+                
                 logger.log_frame(FrameLog(
-                    frame_number=result.frame_number,
                     timestamp_ms=timestamp_ms,
                     num_detections=len(result.detections),
                     classical_count=classical_count,
                     classical_density=classical_density,
                     quantum_count=quantum_count,
                     quantum_density=quantum_density,
-                    quantum_ran=quantum_ran_this_frame,
-                    processing_time_ms=(time.time() - start_time) * 1000,
+                    # Direction density
                     density_A=dir_data["density_A"] if dir_data else None,
                     density_B=dir_data["density_B"] if dir_data else None,
-                    count_A=dir_data["count_A"] if dir_data else None,
-                    count_B=dir_data["count_B"] if dir_data else None,
                     vehicles_A=len(dir_data["boxes_A"]) if dir_data else None,
                     vehicles_B=len(dir_data["boxes_B"]) if dir_data else None,
+                    # Timing
+                    quantum_execution_time_ms=qm.quantum_execution_time_ms if qm and quantum_ran_this_frame else None,
+                    # Quantum vs Classical comparison
+                    density_difference=density_diff,
+                    count_agreement=count_agree,
+                    # Theoretical speedup
+                    grid_size_N=N,
+                    classical_queries_O_N=qm.classical_queries_O_N if qm else N,
+                    quantum_queries_O_sqrtN=qm.quantum_queries_O_sqrtN if qm else None,
+                    theoretical_speedup=qm.theoretical_speedup if qm else None,
                 ))
             
             # Measure processing elapsed (used for the frame-rate limiter)
