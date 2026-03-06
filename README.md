@@ -1,14 +1,14 @@
-# Quantum Traffic Density Estimation
+﻿# Quantum Traffic Density Estimation
 
 A quantum computing approach to estimating traffic density using Grover's algorithm and Quantum Phase Estimation (QPE). This project demonstrates how quantum counting can achieve a theoretical quadratic speedup over classical counting methods.
 
 ## Overview
 
-This system divides a video frame into a grid of regions, identifies which regions contain vehicles (using YOLO object detection), and uses **Quantum Counting** to estimate the traffic density — the fraction of regions occupied by cars.
+This system divides a video frame into a grid of regions, identifies which regions contain vehicles (using YOLO object detection), and uses **Quantum Counting** to estimate the traffic density  the fraction of regions occupied by cars.
 
 ### Key Innovation
 
-Instead of classically counting all N regions (O(N) operations), quantum counting estimates the count M in **O(√N) oracle queries** — a quadratic speedup.
+Instead of classically counting all N regions (O(N) operations), quantum counting estimates the count M in **O(N) oracle queries**  a quadratic speedup.
 
 For a city-scale grid with 1,000,000 cells:
 - **Classical**: 1,000,000 checks
@@ -17,36 +17,37 @@ For a city-scale grid with 1,000,000 cells:
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Video Frame    │ ──▶ │  YOLO Detection  │ ──▶ │  Bounding Boxes     │
-│  (1920×1080)    │     │  (YOLOv8 + GPU)  │     │  [(x1,y1,x2,y2)...] │
-└─────────────────┘     └──────────────────┘     └──────────┬──────────┘
-                                                            │
-                                                            ▼
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Traffic        │ ◀── │  Quantum         │ ◀── │  Occupancy Grid     │
-│  Density: 37.5% │     │  Counting (QPE)  │     │  [1,0,1,1,0,0,...]  │
-└─────────────────┘     └──────────────────┘     └─────────────────────┘
+          
+  Video Frame        YOLO Detection      Bounding Boxes     
+  (19201080)           (YOLOv8 + GPU)         [(x1,y1,x2,y2)...] 
+          
+                                                            
+                                                            
+          
+  Traffic            Quantum             Occupancy Grid     
+  Density: 37.5%        Counting (QPE)         [1,0,1,1,0,0,...]  
+          
 ```
 
 ## Project Structure
 
 ```
 Capstone/
-├── src/
-│   ├── vision/
-│   │   ├── grid.py               # Grid division utilities
-│   │   ├── boxes_to_occupancy.py # Convert bounding boxes to binary grid
-│   │   ├── video_processor.py    # YOLO video processing
-│   │   └── visualization.py      # Overlay drawing utilities
-│   ├── quantum/
-│   │   └── quantum_counting.py     # Quantum counting implementation
-│   ├── utils/
-│   │   └── logging.py            # CSV logging and statistics
-│   └── pipeline.py               # Main CLI entry point
-├── logs/                         # Output logs (gitignored)
-├── requirements.txt
-└── README.md
+ src/
+    vision/
+       grid.py               # Grid division utilities
+       boxes_to_occupancy.py # Convert bounding boxes to binary grid
+       video_processor.py    # YOLO video processing
+       visualization.py      # Overlay drawing utilities
+    quantum/
+       quantum_counting.py   # Core quantum counting algorithm (QPE + Grover)
+       demo.py               # Standalone CLI for benchmarking/testing
+    utils/
+       logging.py            # CSV logging and statistics
+    pipeline.py               # Main video pipeline CLI
+ logs/                         # Output logs (gitignored)
+ requirements.txt
+ README.md
 ```
 
 ## Installation
@@ -76,31 +77,28 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ## Usage
 
-### Terminal Demo (No Video Required)
+### Quantum Demo (No Video Required)
 ```bash
-python -m src.quantum.quantum_counting
+python -m src.quantum.demo
 ```
 
-Runs three test scenarios comparing quantum vs classical counting.
+Runs three test scenarios comparing quantum vs classical counting. Useful for verifying the quantum circuit without needing a video file.
 
 ### Video Processing Pipeline
 ```bash
-# Basic usage
+# Basic usage (quantum enabled by default)
 python -m src.pipeline --video traffic.mp4
 
-# With output video
-python -m src.pipeline --video traffic.mp4 --output result.mp4
-
-# Process single image
-python -m src.pipeline --image intersection.jpg --output result.png
+# Classical only (fast, no quantum)
+python -m src.pipeline --video traffic.mp4 --no-quantum
 ```
 
 ## CLI Reference
 
-### Terminal Demo CLI
+### Demo CLI
 
 ```
-python -m src.quantum.quantum_counting [OPTIONS]
+python -m src.quantum.demo [OPTIONS]
 ```
 
 | Flag | Default | Description |
@@ -112,24 +110,23 @@ python -m src.quantum.quantum_counting [OPTIONS]
 | `--test-m M` | - | Test specific occupancy value M |
 | `--random` | - | Run with random occupancy |
 | `--benchmark` | - | Test all M values from 0 to N |
-| `--quiet`, `-q` | - | Minimal output |
 
 **Examples:**
 ```bash
 # Default demo (3 test scenarios)
-python -m src.quantum.quantum_counting
+python -m src.quantum.demo
 
 # Benchmark with high precision (shows accuracy for all M)
-python -m src.quantum.quantum_counting --benchmark --precision 6
+python -m src.quantum.demo --benchmark --precision 6
 
 # Test specific M=5 occupancy
-python -m src.quantum.quantum_counting --test-m 5 -p 6
+python -m src.quantum.demo --test-m 5 -p 6
 
-# Larger grid (8×4 = 32 regions, needs more precision)
-python -m src.quantum.quantum_counting --rows 8 --cols 4 --precision 7 --test-m 10
+# Larger grid (8x4 = 32 regions, needs more precision)
+python -m src.quantum.demo --rows 8 --cols 4 --precision 7 --test-m 10
 
 # Random occupancy test
-python -m src.quantum.quantum_counting --random
+python -m src.quantum.demo --random
 ```
 
 ### Video Pipeline CLI
@@ -138,39 +135,36 @@ python -m src.quantum.quantum_counting --random
 python -m src.pipeline [OPTIONS]
 ```
 
-#### Input Options (one required)
+#### Input (required)
 | Flag | Description |
 |------|-------------|
 | `--video PATH` | Path to input video file |
-| `--image PATH` | Path to input image file |
-
-#### Output Options
-| Flag | Description |
-|------|-------------|
-| `--output PATH`, `-o` | Output file path (video or image) |
-| `--no-preview` | Disable live preview window |
 
 #### Grid Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--rows N` | 4 | Grid rows |
-| `--cols N` | 4 | Grid columns |
+| `--cols N` | 8 | Grid columns |
 
-> ⚠️ Grid size (rows × cols) must be a power of 2 (e.g., 16, 32, 64). Search qubits are automatically calculated as log₂(N).
+Grid size (rows x cols) must be a power of 2 (e.g., 16, 32, 64). Search qubits are calculated as log2(N).
 
 #### Quantum Options
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--no-quantum` | false | Disable quantum counting (classical only, faster) |
 | `--precision N` | 6 | QPE precision qubits (more = accurate but slower) |
-| `--shots N` | 1024 | Quantum measurement shots (more = accurate) |
-| `--quantum-every N` | 5 | Run quantum every N frames (1 = every frame) |
+| `--shots N` | 1024 | Quantum measurement shots |
+| `--quantum-every N` | 5 | Run quantum every N frames (synced with classical) |
+
+#### Direction Options
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--split TYPE` | vertical | Direction boundary split: `vertical` or `horizontal` |
+| `--no-direction` | false | Disable directional A/B density breakdown |
 
 #### Processing Options
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--skip-frames N` | 0 | Frames to skip between processing |
-| `--max-frames N` | None | Maximum frames to process |
 | `--confidence F` | 0.5 | YOLO confidence threshold (0.0-1.0) |
 | `--device DEV` | cuda | Device for YOLO: `cpu`, `cuda`, or `mps` |
 
@@ -180,7 +174,7 @@ python -m src.pipeline [OPTIONS]
 | `--no-log` | false | Disable CSV logging |
 | `--log-dir PATH` | logs | Directory for log files |
 
-#### Video Pipeline Examples
+#### Examples
 
 ```bash
 # Fast mode (no quantum, classical only)
@@ -195,18 +189,22 @@ python -m src.pipeline --video traffic.mp4 --precision 6 --quantum-every 10
 # CPU-only processing
 python -m src.pipeline --video traffic.mp4 --device cpu
 
-# Custom grid (8×8 = 64 regions, needs precision 8)
+# Custom grid (8x8 = 64 regions, needs precision 8)
 python -m src.pipeline --video traffic.mp4 --rows 8 --cols 8 --precision 8
 
-# Process first 100 frames only
-python -m src.pipeline --video traffic.mp4 --max-frames 100
+# Horizontal direction split
+python -m src.pipeline --video traffic.mp4 --split horizontal
+
+# Disable directional breakdown
+python -m src.pipeline --video traffic.mp4 --no-direction
 ```
 
-#### Keyboard Controls (during video playback)
+#### Keyboard Controls (during playback)
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
 | `p` | Pause/Resume |
+| `h` | Hide/show info panels |
 | `s` | Save screenshot |
 
 ## Theoretical Background
@@ -229,24 +227,24 @@ where:
 
 $$\sin(\theta) = \sqrt{\frac{M}{N}}$$
 
-This encodes the count M in the angle θ.
+This encodes the count M in the angle theta.
 
 ### Quantum Phase Estimation
 
-QPE extracts the phase θ from G's eigenvalues:
+QPE extracts the phase theta from G's eigenvalues:
 
-1. Prepare uniform superposition over search space |s⟩
+1. Prepare uniform superposition over search space |s>
 2. Apply controlled-G^(2^k) operations for each precision qubit k
 3. Apply inverse QFT to counting register
-4. Measure to get phase φ
+4. Measure to get phase phi
 
 ### Phase Interpretation (Important!)
 
-When the search register is initialized in uniform superposition |s⟩ (not a pure eigenstate), QPE produces measurement peaks **centered around φ = 0.5**, offset by ±θ/π:
+When the search register is initialized in uniform superposition |s> (not a pure eigenstate), QPE produces measurement peaks **centered around phi = 0.5**, offset by +/-theta/pi:
 
 $$\phi_{measured} = 0.5 \pm \frac{\theta}{\pi}$$
 
-Therefore, to extract θ:
+Therefore, to extract theta:
 
 $$\theta = \pi \cdot |\phi_{measured} - 0.5|$$
 
@@ -261,28 +259,28 @@ $$M = N \cdot \sin^2(\theta)$$
 | **Search qubits** | n | Encode N = 2^n grid regions |
 | **Precision qubits** | p | Determine phase measurement resolution (2^p bins) |
 
-**Rule of thumb:** `precision ≥ search_qubits + 2` for accurate results.
+**Rule of thumb:** `precision >= search_qubits + 2` for accurate results.
 
 | Grid | N | Search (n) | Recommended Precision (p) |
 |------|---|------------|---------------------------|
-| 4×4 | 16 | 4 | 6 |
-| 8×4 | 32 | 5 | 7 |
-| 8×8 | 64 | 6 | 8 |
+| 4x4 | 16 | 4 | 6 |
+| 8x4 | 32 | 5 | 7 |
+| 8x8 | 64 | 6 | 8 |
 
 ### Complexity Analysis
 
 | Method | Oracle Queries | Total Operations |
 |--------|---------------|------------------|
 | Classical Counting | N | O(N) |
-| Quantum Counting | O(√N) | O(√N log N) |
+| Quantum Counting | O(sqrt(N)) | O(sqrt(N) log N) |
 
 ## Important Assumptions
 
-> ⚠️ **Academic Honesty Note**: This project makes the following assumptions that should be clearly stated in any report or presentation.
+> **Academic Honesty Note**: This project makes the following assumptions that should be clearly stated in any report or presentation.
 
 ### The Oracle Assumption
 
-Quantum counting achieves O(√N) speedup **in oracle queries**. However, in our implementation:
+Quantum counting achieves O(sqrt(N)) speedup **in oracle queries**. However, in our implementation:
 
 1. We construct the oracle **classically** by iterating through all regions
 2. This classical preprocessing is O(N)
@@ -310,7 +308,7 @@ For each marked index i, the oracle applies a phase flip:
 
 ```python
 for idx in marked_indices:
-    # X gates to convert |idx⟩ to |11...1⟩
+    # X gates to convert |idx> to |11...1>
     # Multi-controlled Z gate
     # Undo X gates
 ```
@@ -329,7 +327,7 @@ for k in range(precision_qubits):
 
 ### Phase Interpretation
 
-Due to the symmetric eigenvalues (±θ), we observe peaks at φ and (1-φ), both symmetric around 0.5. They correspond to the same M value:
+Due to the symmetric eigenvalues (+/-theta), we observe peaks at phi and (1-phi), both symmetric around 0.5. They correspond to the same M value:
 
 ```python
 # Extract theta from offset from 0.5
@@ -337,28 +335,59 @@ theta = math.pi * abs(phi - 0.5)
 M = N * math.sin(theta) ** 2
 ```
 
+### Circuit Caching
+
+To avoid redundant transpilation overhead, circuits are cached at the module level:
+
+```python
+_circuit_cache: Dict[tuple, QuantumCircuit] = {}
+# Key: (n_qubits, precision_qubits, frozenset(marked_indices))
+# Max 64 entries -- avoids re-transpiling identical configurations
+```
+
 ## Output Logs
 
-When processing video, the pipeline generates:
+When processing video, the pipeline writes to the `logs/` directory:
 
-- **`logs/density_log_YYYYMMDD_HHMMSS.csv`**: Per-frame data
-  - Frame number, timestamp, detections count
-  - Classical count/density, quantum count/density
-  - Error metrics, processing time
+- **`logs/data.csv`**: Per-frame data (overwritten each run -- import into Grafana or similar)
+
+  | Column | Description |
+  |--------|-------------|
+  | `timestamp_ms` | Frame timestamp in milliseconds |
+  | `num_detections` | Raw YOLO detection count |
+  | `classical_count` | Classical marked-cell count |
+  | `classical_density` | Classical density (0-1) |
+  | `quantum_count` | Quantum estimated count |
+  | `quantum_density` | Quantum estimated density (0-1) |
+  | `density_A` | Density in direction A region |
+  | `density_B` | Density in direction B region |
+  | `vehicles_A` | Vehicle count in direction A |
+  | `vehicles_B` | Vehicle count in direction B |
+  | `quantum_execution_time_ms` | Quantum circuit execution time |
+  | `density_difference` | abs(quantum_density - classical_density) |
+  | `count_agreement` | 1 if counts match, 0 otherwise |
+  | `grid_size_N` | Total grid cells (rows x cols) |
+  | `classical_queries_O_N` | Classical oracle queries (= N) |
+  | `quantum_queries_O_sqrtN` | Quantum oracle queries (= sqrt(N)) |
+  | `theoretical_speedup` | N / sqrt(N) = sqrt(N) |
+  | `error` | abs(quantum_count - classical_count) |
+  | `relative_error` | error / classical_count * 100% |
+
+  > Classical and quantum values in each row are always computed from the same frame snapshot, ensuring a fair comparison.
 
 - **`logs/summary_YYYYMMDD_HHMMSS.txt`**: Session summary
   - Configuration used
   - Accuracy statistics
-  - Error distribution histogram
+  - Error distribution
 
 ## Results
 
-Typical accuracy with precision=6 on 16-region grid:
+Typical accuracy with precision=6 on a 16-region grid:
 
 | Scenario | Classical M | Quantum M | Error |
 |----------|-------------|-----------|-------|
 | Low density (M=2) | 2 | 2 | 0 |
-| Moderate density (M=6) | 6 | 5-6 | ≤1 |
+| Moderate density (M=6) | 6 | 5-6 | <=1 |
 | High density (M=14) | 14 | 14 | 0 |
 
 Average error: **< 1 region** with proper precision settings.
