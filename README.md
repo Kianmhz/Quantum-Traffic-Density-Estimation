@@ -4,11 +4,11 @@ A quantum computing approach to estimating traffic density using Grover's algori
 
 ## Overview
 
-This system divides a video frame into a grid of regions, identifies which regions contain vehicles (using YOLO object detection), and uses **Quantum Counting** to estimate the traffic density  the fraction of regions occupied by cars.
+This system divides a video frame into a grid of regions, identifies which regions contain vehicles (using YOLO object detection), and uses **Quantum Counting** to estimate the traffic density — the fraction of regions occupied by cars.
 
 ### Key Innovation
 
-Instead of classically counting all N regions (O(N) operations), quantum counting estimates the count M in **O(N) oracle queries**  a quadratic speedup.
+Instead of classically counting all N regions (O(N) operations), quantum counting estimates the count M in **O(√N) oracle queries** — a quadratic speedup.
 
 For a city-scale grid with 1,000,000 cells:
 - **Classical**: 1,000,000 checks
@@ -17,37 +17,37 @@ For a city-scale grid with 1,000,000 cells:
 ## Architecture
 
 ```
-          
-  Video Frame        YOLO Detection      Bounding Boxes     
-  (19201080)           (YOLOv8 + GPU)         [(x1,y1,x2,y2)...] 
-          
-                                                            
-                                                            
-          
-  Traffic            Quantum             Occupancy Grid     
-  Density: 37.5%        Counting (QPE)         [1,0,1,1,0,0,...]  
-          
++---------------------+     +--------------------+     +------------------------+
+|    Video Frame      | --> |   YOLO Detection   | --> |    Bounding Boxes      |
+|    (1920x1080)      |     |   (YOLOv8 + GPU)   |     | [(x1,y1,x2,y2), ...]  |
++---------------------+     +--------------------+     +------------------------+
+                                                                    |
+                                                                    v
++---------------------+     +--------------------+     +------------------------+
+|  Traffic Density    | <-- |  Quantum Counting  | <-- |    Occupancy Grid      |
+|    37.5%            |     |   (QPE + Grover)   |     |  [1, 0, 1, 1, 0, 0, ...]|
++---------------------+     +--------------------+     +------------------------+
 ```
 
 ## Project Structure
 
 ```
 Capstone/
- src/
-    vision/
-       grid.py               # Grid division utilities
-       boxes_to_occupancy.py # Convert bounding boxes to binary grid
-       video_processor.py    # YOLO video processing
-       visualization.py      # Overlay drawing utilities
-    quantum/
-       quantum_counting.py   # Core quantum counting algorithm (QPE + Grover)
-       demo.py               # Standalone CLI for benchmarking/testing
-    utils/
-       logging.py            # CSV logging and statistics
-    pipeline.py               # Main video pipeline CLI
- logs/                         # Output logs (gitignored)
- requirements.txt
- README.md
+├── src/
+│   ├── vision/
+│   │   ├── grid.py               # Grid division utilities
+│   │   ├── boxes_to_occupancy.py # Convert bounding boxes to binary grid
+│   │   ├── video_processor.py    # YOLO video processing
+│   │   └── visualization.py      # Overlay drawing utilities
+│   ├── quantum/
+│   │   ├── quantum_counting.py   # Core quantum counting algorithm (QPE + Grover)
+│   │   └── demo.py               # Standalone CLI for benchmarking/testing
+│   ├── utils/
+│   │   └── logging.py            # CSV logging and statistics
+│   └── pipeline.py               # Main video pipeline CLI
+├── logs/                          # Output logs (gitignored)
+├── requirements.txt
+└── README.md
 ```
 
 ## Installation
