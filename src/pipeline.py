@@ -8,6 +8,7 @@ estimation using quantum counting.
 import argparse
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, Future
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +18,6 @@ from src.vision.visualization import create_visualization
 from src.quantum.quantum_counting import (
     quantum_counting,
     compute_classical_count,
-    QuantumMetrics,
 )
 from src.utils.logging import DensityLogger, FrameLog
 
@@ -36,8 +36,8 @@ def process_video_with_quantum(
     video_path: str,
     rows: int = 4,
     cols: int = 4,
-    precision_qubits: int = 4,
-    shots: int = 512,
+    precision_qubits: int = 6,
+    shots: int = 1024,
     confidence_threshold: float = 0.5,
     use_quantum: bool = True,
     device: str = "cuda",
@@ -113,6 +113,11 @@ def process_video_with_quantum(
     frames_since_quantum = 0
     target_fps = 10
     frame_duration = 1.0 / target_fps
+
+    # Background thread for quantum simulation so it never blocks the UI
+    quantum_executor = ThreadPoolExecutor(max_workers=1)
+    quantum_future: Optional[Future] = None
+    quantum_ran_this_frame = False
     
     try:
         for result in processor.process_video(video_path):
@@ -132,7 +137,6 @@ def process_video_with_quantum(
                 rows, cols,
                 info['width'], info['height']
             )
-            yolo_time_ms = result.inference_time_ms if hasattr(result, 'inference_time_ms') else None
             
             # Classical density (always computed - fast)
             classical_count = compute_classical_count(occupancy)
@@ -153,18 +157,32 @@ def process_video_with_quantum(
             quantum_count = last_quantum_count
             quantum_metrics = last_quantum_metrics
             quantum_ran_this_frame = False
-            
+
+            # Poll: collect result if the background job finished
+            if quantum_future is not None and quantum_future.done():
+                try:
+                    last_quantum_count, last_quantum_density, last_quantum_metrics = quantum_future.result()
+                    quantum_density = last_quantum_density
+                    quantum_count = last_quantum_count
+                    quantum_metrics = last_quantum_metrics
+                    quantum_ran_this_frame = True
+                except Exception as _qe:
+                    print(f"\nQuantum error: {_qe}")
+                finally:
+                    quantum_future = None
+
+            # Submit a new quantum job when due and no job is running
             if use_quantum and frames_since_quantum >= quantum_every_n:
-                quantum_count, quantum_density, quantum_metrics = quantum_counting(
-                    occupancy,
-                    precision_qubits=precision_qubits,
-                    shots=shots
-                )
-                last_quantum_density = quantum_density
-                last_quantum_count = quantum_count
-                last_quantum_metrics = quantum_metrics
-                frames_since_quantum = 0
-                quantum_ran_this_frame = True
+                if quantum_future is None:  # previous job already collected
+                    _occ_snapshot = list(occupancy)  # capture before next frame mutates it
+                    quantum_future = quantum_executor.submit(
+                        quantum_counting,
+                        _occ_snapshot,
+                        precision_qubits,
+                        shots
+                    )
+                    frames_since_quantum = 0
+                # else: job still running, just wait another frame
             else:
                 frames_since_quantum += 1
             
@@ -188,7 +206,6 @@ def process_video_with_quantum(
             
             # Log frame data
             if logger:
-                processing_ms = (time.time() - start_time) * 1000
                 timestamp_ms = result.frame_number / info['fps'] * 1000 if info['fps'] > 0 else 0
                 
                 # Compute derived comparison fields
@@ -266,6 +283,10 @@ def process_video_with_quantum(
                 print(f"\nSaved screenshot: {screenshot_path}")
     
     finally:
+        # Gracefully stop the quantum background thread
+        if quantum_future is not None:
+            quantum_future.cancel()
+        quantum_executor.shutdown(wait=False)
         cv2.destroyAllWindows()
     
     # Print summary

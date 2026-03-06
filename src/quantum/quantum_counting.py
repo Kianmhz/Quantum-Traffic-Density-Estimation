@@ -28,7 +28,7 @@ O(√N) times.
 
 import math
 import time
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass, field
 
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
@@ -36,6 +36,25 @@ from qiskit_aer import Aer
 from qiskit.circuit.library import QFTGate
 
 from src.vision.boxes_to_occupancy import boxes_to_occupancy
+
+# ---------------------------------------------------------------------------
+# Module-level cache: avoid rebuilding + re-transpiling identical circuits.
+# Key: (n_qubits, precision_qubits, frozenset(marked_indices))
+# Value: transpiled QuantumCircuit
+# ---------------------------------------------------------------------------
+_circuit_cache: dict = {}
+_CIRCUIT_CACHE_MAX = 64   # cap memory usage
+
+# Reuse one backend instance instead of calling get_backend() every frame
+_aer_backend = None
+
+
+def _get_backend():
+    """Return a cached Aer simulator backend."""
+    global _aer_backend
+    if _aer_backend is None:
+        _aer_backend = Aer.get_backend("aer_simulator")
+    return _aer_backend
 
 
 @dataclass
@@ -229,51 +248,65 @@ def quantum_counting(
         )
         return N, 1.0, metrics
     
-    # Build oracle and Grover operator
-    oracle = build_oracle(n_qubits, marked_indices)
-    grover_op = build_grover_operator(n_qubits, oracle)
-    
-    # Create quantum counting circuit
-    # Counting register (for QPE) + Search register
-    counting_reg = QuantumRegister(precision_qubits, 'counting')
-    search_reg = QuantumRegister(n_qubits, 'search')
-    classical_reg = ClassicalRegister(precision_qubits, 'result')
-    
-    qc = QuantumCircuit(counting_reg, search_reg, classical_reg)
-    
-    # Initialize search register in uniform superposition
-    qc.h(search_reg)
-    
-    # Initialize counting register in superposition
-    qc.h(counting_reg)
-    
-    # Controlled Grover operators (controlled-G^(2^k))
-    # This is the core of QPE
-    for k in range(precision_qubits):
-        # Apply G^(2^k) controlled by counting qubit k
-        power = 2 ** k
-        for _ in range(power):
-            controlled_grover = grover_op.control(1)
-            qc.compose(
-                controlled_grover,
-                qubits=[counting_reg[k]] + list(search_reg),
-                inplace=True
-            )
-    
-    # Inverse QFT on counting register
-    qft_gate = QFTGate(precision_qubits).inverse()
-    qc.append(qft_gate, counting_reg)
-    
-    # Measure counting register
-    qc.measure(counting_reg, classical_reg)
-    
-    # Run simulation
-    backend = Aer.get_backend("aer_simulator")
-    transpiled = transpile(qc, backend, optimization_level=1)
-    circuit_depth = transpiled.depth()
+    # ------------------------------------------------------------------
+    # Circuit cache lookup — skip rebuild + transpile for known patterns
+    # ------------------------------------------------------------------
+    cache_key = (n_qubits, precision_qubits, frozenset(marked_indices))
+    backend = _get_backend()
+
+    if cache_key in _circuit_cache:
+        transpiled = _circuit_cache[cache_key]
+        circuit_depth = transpiled.depth()
+    else:
+        # Build oracle and Grover operator
+        oracle = build_oracle(n_qubits, marked_indices)
+        grover_op = build_grover_operator(n_qubits, oracle)
+
+        # Create quantum counting circuit
+        # Counting register (for QPE) + Search register
+        counting_reg = QuantumRegister(precision_qubits, 'counting')
+        search_reg = QuantumRegister(n_qubits, 'search')
+        classical_reg = ClassicalRegister(precision_qubits, 'result')
+
+        qc = QuantumCircuit(counting_reg, search_reg, classical_reg)
+
+        # Initialize search register in uniform superposition
+        qc.h(search_reg)
+
+        # Initialize counting register in superposition
+        qc.h(counting_reg)
+
+        # Controlled Grover operators (controlled-G^(2^k)) — core of QPE.
+        # Build controlled_grover ONCE per precision bit (not per application).
+        controlled_grover = grover_op.control(1)
+        for k in range(precision_qubits):
+            power = 2 ** k
+            for _ in range(power):
+                qc.compose(
+                    controlled_grover,
+                    qubits=[counting_reg[k]] + list(search_reg),
+                    inplace=True
+                )
+
+        # Inverse QFT on counting register
+        qft_gate = QFTGate(precision_qubits).inverse()
+        qc.append(qft_gate, counting_reg)
+
+        # Measure counting register
+        qc.measure(counting_reg, classical_reg)
+
+        # Transpile once and cache
+        transpiled = transpile(qc, backend, optimization_level=1)
+        circuit_depth = transpiled.depth()
+
+        if len(_circuit_cache) >= _CIRCUIT_CACHE_MAX:
+            # Evict oldest entry
+            _circuit_cache.pop(next(iter(_circuit_cache)))
+        _circuit_cache[cache_key] = transpiled
     
     t_start = time.perf_counter()
-    result = backend.run(transpiled, shots=shots).result()
+    job = backend.run(transpiled, shots=shots)
+    result = job.result()
     quantum_exec_time_ms = (time.perf_counter() - t_start) * 1000
     counts = result.get_counts()
     
