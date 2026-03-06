@@ -148,7 +148,6 @@ class VideoProcessor:
     def process_video(
         self,
         video_path: str,
-        skip_frames: int = 0,
         max_frames: Optional[int] = None
     ) -> Generator[FrameResult, None, None]:
         """
@@ -156,7 +155,6 @@ class VideoProcessor:
         
         Args:
             video_path: Path to video file.
-            skip_frames: Number of frames to skip between processing.
             max_frames: Maximum number of frames to process (None = all).
         
         Yields:
@@ -176,11 +174,6 @@ class VideoProcessor:
                 if not ret:
                     break
                 
-                # Skip frames if requested
-                if skip_frames > 0 and frame_count % (skip_frames + 1) != 0:
-                    frame_count += 1
-                    continue
-                
                 # Check max frames limit
                 if max_frames is not None and processed_count >= max_frames:
                     break
@@ -193,44 +186,6 @@ class VideoProcessor:
         finally:
             cap.release()
     
-    def process_webcam(
-        self,
-        camera_id: int = 0,
-        max_frames: Optional[int] = None
-    ) -> Generator[FrameResult, None, None]:
-        """
-        Process live webcam feed.
-        
-        Args:
-            camera_id: Camera device ID (usually 0 for default webcam).
-            max_frames: Maximum frames to capture (None = infinite).
-        
-        Yields:
-            FrameResult for each frame.
-        """
-        cap = cv2.VideoCapture(camera_id)
-        
-        if not cap.isOpened():
-            raise ValueError(f"Could not open camera: {camera_id}")
-        
-        frame_count = 0
-        
-        try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                if max_frames is not None and frame_count >= max_frames:
-                    break
-                
-                yield self.process_frame(frame, frame_count)
-                frame_count += 1
-        
-        finally:
-            cap.release()
-
-
 def get_video_info(video_path: str) -> dict:
     """
     Get metadata about a video file.
@@ -303,7 +258,6 @@ class MockVideoProcessor:
             frame_number=frame_number,
             detections=detections,
             boxes_xyxy=boxes_xyxy,
-
         )
     
     def process_video(self, video_path: str, **kwargs):

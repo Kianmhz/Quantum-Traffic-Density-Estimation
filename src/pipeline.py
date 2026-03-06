@@ -128,8 +128,7 @@ def process_video_with_quantum(
     # Background thread for quantum simulation so it never blocks the UI
     quantum_executor = ThreadPoolExecutor(max_workers=1)
     quantum_future: Optional[Future] = None
-    quantum_ran_this_frame = False
-    
+
     try:
         for result in processor.process_video(video_path):
             if paused:
@@ -208,8 +207,7 @@ def process_video_with_quantum(
 
             quantum_density = last_quantum_density
             quantum_count = last_quantum_count
-            quantum_metrics = last_quantum_metrics
-            
+
             # Create visualization
             labels = [d.class_name for d in result.detections]
             confidences = [d.confidence for d in result.detections]

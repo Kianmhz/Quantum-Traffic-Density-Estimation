@@ -65,19 +65,12 @@ class QuantumMetrics:
     counts: Dict[str, int] = field(default_factory=dict)
     # Timing
     quantum_execution_time_ms: float = 0.0
-    # Circuit characteristics
-    circuit_depth: int = 0
-    total_qubits: int = 0
     # Theoretical complexity
     grid_size_N: int = 0
-    n_search_qubits: int = 0
     precision_qubits: int = 0
     classical_queries_O_N: int = 0
     quantum_queries_O_sqrtN: float = 0.0
     theoretical_speedup: float = 0.0
-    # Phase info
-    estimated_theta: float = 0.0
-    shots_used: int = 0
 
 
 def build_oracle(n_qubits: int, marked_indices: List[int]) -> QuantumCircuit:
@@ -213,7 +206,6 @@ def quantum_counting(
     classical_queries = N
     quantum_queries = math.sqrt(N)
     theoretical_speedup = N / quantum_queries if quantum_queries > 0 else 0
-    total_qubits_count = precision_qubits + n_qubits
     
     # Find marked indices (in practice, oracle would be a black box)
     marked_indices = [i for i, occ in enumerate(occupancy) if occ == 1]
@@ -223,13 +215,11 @@ def quantum_counting(
         metrics = QuantumMetrics(
             estimated_M=0, estimated_density=0.0,
             counts={"0" * precision_qubits: shots},
-            grid_size_N=N, n_search_qubits=n_qubits,
+            grid_size_N=N,
             precision_qubits=precision_qubits,
             classical_queries_O_N=classical_queries,
             quantum_queries_O_sqrtN=quantum_queries,
             theoretical_speedup=theoretical_speedup,
-            total_qubits=total_qubits_count,
-            shots_used=shots,
         )
         return 0, 0.0, metrics
     
@@ -237,14 +227,11 @@ def quantum_counting(
         metrics = QuantumMetrics(
             estimated_M=N, estimated_density=1.0,
             counts={format(precision_qubits, f'0{precision_qubits}b'): shots},
-            grid_size_N=N, n_search_qubits=n_qubits,
+            grid_size_N=N,
             precision_qubits=precision_qubits,
             classical_queries_O_N=classical_queries,
             quantum_queries_O_sqrtN=quantum_queries,
             theoretical_speedup=theoretical_speedup,
-            total_qubits=total_qubits_count,
-            estimated_theta=math.pi / 2,
-            shots_used=shots,
         )
         return N, 1.0, metrics
     
@@ -256,7 +243,6 @@ def quantum_counting(
 
     if cache_key in _circuit_cache:
         transpiled = _circuit_cache[cache_key]
-        circuit_depth = transpiled.depth()
     else:
         # Build oracle and Grover operator
         oracle = build_oracle(n_qubits, marked_indices)
@@ -297,7 +283,6 @@ def quantum_counting(
 
         # Transpile once and cache
         transpiled = transpile(qc, backend, optimization_level=1)
-        circuit_depth = transpiled.depth()
 
         if len(_circuit_cache) >= _CIRCUIT_CACHE_MAX:
             # Evict oldest entry
@@ -381,27 +366,16 @@ def quantum_counting(
     
     estimated_density = M_estimated / N
     
-    # Compute best theta from the dominant phase
-    best_theta = 0.0
-    if phase_counts:
-        dominant_phi = max(phase_counts, key=phase_counts.get)
-        best_theta = math.pi * abs(dominant_phi - 0.5)
-    
     metrics = QuantumMetrics(
         estimated_M=M_estimated,
         estimated_density=estimated_density,
         counts=counts,
         quantum_execution_time_ms=quantum_exec_time_ms,
-        circuit_depth=circuit_depth,
-        total_qubits=total_qubits_count,
         grid_size_N=N,
-        n_search_qubits=n_qubits,
         precision_qubits=precision_qubits,
         classical_queries_O_N=classical_queries,
         quantum_queries_O_sqrtN=quantum_queries,
         theoretical_speedup=theoretical_speedup,
-        estimated_theta=best_theta,
-        shots_used=shots,
     )
     
     return M_estimated, estimated_density, metrics

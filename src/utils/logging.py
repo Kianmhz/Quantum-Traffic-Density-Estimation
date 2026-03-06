@@ -6,11 +6,10 @@ Provides CSV logging and summary statistics for analysis.
 
 import csv
 import math
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 import statistics
 
 
@@ -66,7 +65,6 @@ class SessionStats:
     max_error: int = 0
     min_error: int = 0
     std_error: float = 0.0
-    total_time_s: float = 0.0
     # Timing
     avg_quantum_time_ms: float = 0.0
     # Quantum vs Classical agreement
