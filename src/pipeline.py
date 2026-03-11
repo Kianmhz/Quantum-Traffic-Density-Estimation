@@ -45,6 +45,7 @@ def process_video_with_quantum(
     enable_logging: bool = True,
     log_dir: str = "logs",
     direction_split: Optional[str] = "vertical",
+    grafana_push: bool = False,
 ):
 
     # Validate grid size is power of 2
@@ -74,7 +75,7 @@ def process_video_with_quantum(
     logger = None
     if enable_logging:
         video_name = Path(video_path).name
-        logger = DensityLogger(output_dir=log_dir, video_name=video_name)
+        logger = DensityLogger(output_dir=log_dir, video_name=video_name, grafana_push=grafana_push)
         logger.set_config(
             grid=f"{rows}x{cols}",
             total_regions=N,
@@ -375,6 +376,9 @@ def main():
                        help='Disable logging to CSV')
     parser.add_argument('--log-dir', type=str, default='logs',
                        help='Directory for log files (default: logs)')
+    parser.add_argument('--grafana', action='store_true',
+                       help='Push per-frame metrics to Grafana Cloud '
+                            '(requires GRAFANA_URL, GRAFANA_USER, GRAFANA_TOKEN env vars)')
 
     # Direction comparison options
     parser.add_argument('--split', type=str, default='vertical',
@@ -406,6 +410,7 @@ def main():
         enable_logging=not args.no_log,
         log_dir=args.log_dir,
         direction_split=direction_split,
+        grafana_push=args.grafana,
     )
 
 

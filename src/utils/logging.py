@@ -12,6 +12,8 @@ from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 import statistics
 
+from src.utils.grafana import push_metrics_to_grafana
+
 
 @dataclass
 class FrameLog:
@@ -86,7 +88,8 @@ class DensityLogger:
         self,
         output_dir: str = "logs",
         session_name: Optional[str] = None,
-        video_name: Optional[str] = None
+        video_name: Optional[str] = None,
+        grafana_push: bool = False,
     ):
         """
         Initialize the logger.
@@ -104,6 +107,7 @@ class DensityLogger:
         
         self.session_name = session_name
         self.video_name = video_name or "unknown"
+        self.grafana_push = grafana_push
         
         # Fixed CSV file – overwritten on every run
         self.csv_path = self.output_dir / "data.csv"
@@ -149,7 +153,24 @@ class DensityLogger:
             log: FrameLog entry.
         """
         self.logs.append(log)
-        
+
+        # Push to Grafana (non-blocking best-effort)
+        if self.grafana_push:
+            push_metrics_to_grafana({
+                "classical_count":          log.classical_count,
+                "quantum_count":            log.quantum_count,
+                "classical_density":        log.classical_density,
+                "quantum_density":          log.quantum_density,
+                "error":                    log.error,
+                "relative_error_pct":       log.relative_error,
+                "density_A":                log.density_A,
+                "density_B":                log.density_B,
+                "num_detections":           log.num_detections,
+                "quantum_execution_time_ms": log.quantum_execution_time_ms,
+                "count_agreement":          log.count_agreement,
+                "theoretical_speedup":      log.theoretical_speedup,
+            })
+
         # Append to CSV
         with open(self.csv_path, 'a', newline='') as f:
             writer = csv.writer(f)
