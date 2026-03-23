@@ -29,18 +29,34 @@ def push_metrics_to_grafana(row: dict) -> int | None:
         return None
 
     metrics = {
-        "traffic_classical_count":     row.get("classical_count"),
-        "traffic_quantum_count":       row.get("quantum_count"),
-        "traffic_classical_density":   row.get("classical_density"),
-        "traffic_quantum_density":     row.get("quantum_density"),
-        "traffic_error":               row.get("error"),
-        "traffic_relative_error_pct":  row.get("relative_error_pct"),
-        "traffic_density_A":           row.get("density_A"),
-        "traffic_density_B":           row.get("density_B"),
-        "traffic_num_detections":      row.get("num_detections"),
-        "traffic_quantum_exec_ms":     row.get("quantum_execution_time_ms"),
-        "traffic_count_agreement":     1 if str(row.get("count_agreement")) == "True" else 0,
-        "traffic_theoretical_speedup": row.get("theoretical_speedup"),
+        "traffic_classical_count":              row.get("classical_count"),
+        "traffic_quantum_count":                row.get("quantum_count"),
+        "traffic_classical_density":            row.get("classical_density"),
+        "traffic_quantum_density":              row.get("quantum_density"),
+        "traffic_error":                        row.get("error"),
+        "traffic_relative_error_pct":           row.get("relative_error_pct"),
+        "traffic_density_A":                    row.get("density_A"),
+        "traffic_density_B":                    row.get("density_B"),
+        "traffic_num_detections":               row.get("num_detections"),
+        "traffic_quantum_exec_ms":              row.get("quantum_execution_time_ms"),
+        "traffic_count_agreement":              1 if str(row.get("count_agreement")) == "True" else 0,
+        "traffic_theoretical_speedup":          row.get("theoretical_speedup"),
+        # ── Timing breakdown ──────────────────────────────────────────────
+        # O(N) classical counting time (reference baseline)
+        "traffic_classical_count_time_ms":      row.get("classical_count_time_ms"),
+        # Classical preprocessing overhead (0 on cache hits)
+        "traffic_circuit_build_time_ms":        row.get("circuit_build_time_ms"),
+        "traffic_transpile_time_ms":            row.get("transpile_time_ms"),
+        # Aer simulator run time — NOT actual quantum hardware time
+        "traffic_simulation_run_time_ms":       row.get("simulation_run_time_ms"),
+        # Estimated wall-clock time on real superconducting QPU hardware
+        "traffic_estimated_qpu_time_ms":        row.get("estimated_qpu_time_ms"),
+        # Simulation tax: sim_run_time - estimated_qpu_time
+        "traffic_simulation_overhead_ms":       row.get("simulation_overhead_ms"),
+        # Circuit properties driving the QPU estimate
+        "traffic_circuit_depth":                row.get("circuit_depth"),
+        # Empirical speedup: classical_count_time / estimated_qpu_time
+        "traffic_estimated_speedup_vs_classical": row.get("estimated_speedup_vs_classical"),
     }
 
     fields = []

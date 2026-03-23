@@ -29,8 +29,16 @@ class FrameLog:
     density_B: Optional[float] = None
     vehicles_A: Optional[int] = None
     vehicles_B: Optional[int] = None
-    # --- Timing ---
-    quantum_execution_time_ms: Optional[float] = None
+    # --- Timing breakdown ---
+    quantum_execution_time_ms: Optional[float] = None   # legacy (= simulation_run_time_ms)
+    classical_count_time_ms: Optional[float] = None     # O(N) classical reference time
+    circuit_build_time_ms: Optional[float] = None       # build overhead (0 if cached)
+    transpile_time_ms: Optional[float] = None           # transpile overhead (0 if cached)
+    simulation_run_time_ms: Optional[float] = None      # Aer simulation time (NOT QPU)
+    estimated_qpu_time_ms: Optional[float] = None       # estimated real hardware time
+    simulation_overhead_ms: Optional[float] = None      # sim_run - estimated_qpu
+    circuit_depth: Optional[int] = None
+    estimated_speedup_vs_classical: Optional[float] = None
     # --- Quantum vs Classical comparison ---
     density_difference: Optional[float] = None      # quantum - classical (signed)
     count_agreement: Optional[bool] = None           # quantum == classical
@@ -69,6 +77,11 @@ class SessionStats:
     std_error: float = 0.0
     # Timing
     avg_quantum_time_ms: float = 0.0
+    avg_classical_count_time_ms: float = 0.0
+    avg_simulation_run_time_ms: float = 0.0
+    avg_estimated_qpu_time_ms: float = 0.0
+    avg_simulation_overhead_ms: float = 0.0
+    avg_estimated_speedup_vs_classical: float = 0.0
     # Quantum vs Classical agreement
     agreement_rate: float = 0.0     # % of quantum frames where counts match
     avg_density_difference: float = 0.0
@@ -128,8 +141,16 @@ class DensityLogger:
             'error', 'relative_error_pct',
             # Direction density
             'density_A', 'density_B', 'vehicles_A', 'vehicles_B',
-            # Timing
+            # Timing breakdown
             'quantum_execution_time_ms',
+            'classical_count_time_ms',
+            'circuit_build_time_ms',
+            'transpile_time_ms',
+            'simulation_run_time_ms',
+            'estimated_qpu_time_ms',
+            'simulation_overhead_ms',
+            'circuit_depth',
+            'estimated_speedup_vs_classical',
             # Quantum vs Classical comparison
             'density_difference', 'count_agreement',
             # Theoretical speedup
@@ -157,18 +178,27 @@ class DensityLogger:
         # Push to Grafana (non-blocking best-effort)
         if self.grafana_push:
             push_metrics_to_grafana({
-                "classical_count":          log.classical_count,
-                "quantum_count":            log.quantum_count,
-                "classical_density":        log.classical_density,
-                "quantum_density":          log.quantum_density,
-                "error":                    log.error,
-                "relative_error_pct":       log.relative_error,
-                "density_A":                log.density_A,
-                "density_B":                log.density_B,
-                "num_detections":           log.num_detections,
-                "quantum_execution_time_ms": log.quantum_execution_time_ms,
-                "count_agreement":          log.count_agreement,
-                "theoretical_speedup":      log.theoretical_speedup,
+                "classical_count":              log.classical_count,
+                "quantum_count":                log.quantum_count,
+                "classical_density":            log.classical_density,
+                "quantum_density":              log.quantum_density,
+                "error":                        log.error,
+                "relative_error_pct":           log.relative_error,
+                "density_A":                    log.density_A,
+                "density_B":                    log.density_B,
+                "num_detections":               log.num_detections,
+                "quantum_execution_time_ms":    log.quantum_execution_time_ms,
+                "count_agreement":              log.count_agreement,
+                "theoretical_speedup":          log.theoretical_speedup,
+                # New timing breakdown
+                "classical_count_time_ms":      log.classical_count_time_ms,
+                "circuit_build_time_ms":        log.circuit_build_time_ms,
+                "transpile_time_ms":            log.transpile_time_ms,
+                "simulation_run_time_ms":       log.simulation_run_time_ms,
+                "estimated_qpu_time_ms":        log.estimated_qpu_time_ms,
+                "simulation_overhead_ms":       log.simulation_overhead_ms,
+                "circuit_depth":                log.circuit_depth,
+                "estimated_speedup_vs_classical": log.estimated_speedup_vs_classical,
             })
 
         # Append to CSV
@@ -188,8 +218,16 @@ class DensityLogger:
                 f"{log.density_B:.4f}" if log.density_B is not None else "",
                 log.vehicles_A if log.vehicles_A is not None else "",
                 log.vehicles_B if log.vehicles_B is not None else "",
-                # Timing
-                f"{log.quantum_execution_time_ms:.2f}" if log.quantum_execution_time_ms is not None else "",
+                # Timing breakdown
+                f"{log.quantum_execution_time_ms:.4f}" if log.quantum_execution_time_ms is not None else "",
+                f"{log.classical_count_time_ms:.6f}" if log.classical_count_time_ms is not None else "",
+                f"{log.circuit_build_time_ms:.2f}" if log.circuit_build_time_ms is not None else "",
+                f"{log.transpile_time_ms:.2f}" if log.transpile_time_ms is not None else "",
+                f"{log.simulation_run_time_ms:.4f}" if log.simulation_run_time_ms is not None else "",
+                f"{log.estimated_qpu_time_ms:.6f}" if log.estimated_qpu_time_ms is not None else "",
+                f"{log.simulation_overhead_ms:.4f}" if log.simulation_overhead_ms is not None else "",
+                log.circuit_depth if log.circuit_depth is not None else "",
+                f"{log.estimated_speedup_vs_classical:.4f}" if log.estimated_speedup_vs_classical is not None else "",
                 # Quantum vs Classical comparison
                 f"{log.density_difference:.4f}" if log.density_difference is not None else "",
                 log.count_agreement if log.count_agreement is not None else "",
@@ -239,6 +277,26 @@ class DensityLogger:
         q_times = [l.quantum_execution_time_ms for l in self.logs if l.quantum_execution_time_ms is not None]
         if q_times:
             stats.avg_quantum_time_ms = statistics.mean(q_times)
+
+        classical_times = [l.classical_count_time_ms for l in self.logs if l.classical_count_time_ms is not None]
+        if classical_times:
+            stats.avg_classical_count_time_ms = statistics.mean(classical_times)
+
+        sim_run_times = [l.simulation_run_time_ms for l in self.logs if l.simulation_run_time_ms is not None]
+        if sim_run_times:
+            stats.avg_simulation_run_time_ms = statistics.mean(sim_run_times)
+
+        qpu_times = [l.estimated_qpu_time_ms for l in self.logs if l.estimated_qpu_time_ms is not None]
+        if qpu_times:
+            stats.avg_estimated_qpu_time_ms = statistics.mean(qpu_times)
+
+        overhead_times = [l.simulation_overhead_ms for l in self.logs if l.simulation_overhead_ms is not None]
+        if overhead_times:
+            stats.avg_simulation_overhead_ms = statistics.mean(overhead_times)
+
+        speedups = [l.estimated_speedup_vs_classical for l in self.logs if l.estimated_speedup_vs_classical is not None]
+        if speedups:
+            stats.avg_estimated_speedup_vs_classical = statistics.mean(speedups)
 
         # Quantum vs Classical agreement
         if quantum_logs:
@@ -297,6 +355,14 @@ class DensityLogger:
             f.write(f"  Average density difference: {stats.avg_density_difference*100:.2f} pp\n")
             f.write(f"  Count agreement rate: {stats.agreement_rate:.1f}%\n\n")
 
+            # Timing breakdown
+            f.write("Timing Breakdown (averages per quantum frame):\n")
+            f.write(f"  Classical O(N) count time:      {stats.avg_classical_count_time_ms*1000:.3f} µs  [reference]\n")
+            f.write(f"  Aer simulation run time:        {stats.avg_simulation_run_time_ms:.2f} ms  [NOT quantum — classical sim overhead]\n")
+            f.write(f"  Estimated real QPU time:        {stats.avg_estimated_qpu_time_ms*1000:.3f} µs  [modeled from circuit depth × gate times]\n")
+            f.write(f"  Pure simulation overhead:       {stats.avg_simulation_overhead_ms:.2f} ms  [sim_run - estimated_qpu]\n")
+            f.write(f"  Estimated actual speedup:       {stats.avg_estimated_speedup_vs_classical:.2f}x  [classical_time / estimated_qpu_time]\n\n")
+
             # Theoretical speedup
             f.write("Theoretical Quantum Speedup:\n")
             f.write(f"  Grid size N: {stats.grid_size_N}\n")
@@ -350,6 +416,12 @@ class DensityLogger:
         print(f"  Quantum avg:   {stats.avg_quantum_density*100:.2f}%")
         print(f"  Avg difference: {stats.avg_density_difference*100:.2f} pp")
         print(f"  Agreement rate: {stats.agreement_rate:.1f}%")
+        print(f"\nTiming Breakdown:")
+        print(f"  Classical O(N) count:   {stats.avg_classical_count_time_ms*1000:.3f} µs")
+        print(f"  Aer simulation run:     {stats.avg_simulation_run_time_ms:.2f} ms  (classical sim overhead)")
+        print(f"  Est. real QPU time:     {stats.avg_estimated_qpu_time_ms*1000:.3f} µs  (from circuit depth × gate model)")
+        print(f"  Simulation overhead:    {stats.avg_simulation_overhead_ms:.2f} ms  (sim_run - est_qpu)")
+        print(f"  Est. actual speedup:    {stats.avg_estimated_speedup_vs_classical:.2f}x  (classical / est_qpu)")
         print(f"\nTheoretical Speedup:")
         sqrt_n = math.sqrt(stats.grid_size_N) if stats.grid_size_N > 0 else 0
         print(f"  Grid N={stats.grid_size_N}: O(N)={stats.grid_size_N} vs O(√N)={sqrt_n:.1f} → {stats.theoretical_speedup:.1f}x")

@@ -61,14 +61,32 @@ class QuantumMetrics:
     estimated_M: int = 0
     estimated_density: float = 0.0
     counts: Dict[str, int] = field(default_factory=dict)
-    # Timing
+    # Timing (legacy — kept for backwards compatibility; equals simulation_run_time_ms)
     quantum_execution_time_ms: float = 0.0
+    # ── Timing breakdown ──────────────────────────────────────────────────
+    # Time to run O(N) classical counting (reference baseline)
+    classical_count_time_ms: float = 0.0
+    # Classical preprocessing overhead (both are 0 on cache hits)
+    circuit_build_time_ms: float = 0.0
+    transpile_time_ms: float = 0.0
+    # Time Aer spends simulating the circuit classically (NOT quantum time)
+    simulation_run_time_ms: float = 0.0
+    # Estimated wall-clock time on real superconducting QPU hardware
+    estimated_qpu_time_ms: float = 0.0
+    # simulation_run_time_ms - estimated_qpu_time_ms (pure simulation tax)
+    simulation_overhead_ms: float = 0.0
+    # ── Circuit properties (used for QPU estimate) ────────────────────────
+    circuit_depth: int = 0
+    circuit_gate_count: int = 0
+    # ── Speedup metrics ───────────────────────────────────────────────────
     # Theoretical complexity
     grid_size_N: int = 0
     precision_qubits: int = 0
     classical_queries_O_N: int = 0
     quantum_queries_O_sqrtN: float = 0.0
     theoretical_speedup: float = 0.0
+    # Empirical: classical_count_time / estimated_qpu_time
+    estimated_speedup_vs_classical: float = 0.0
 
 
 def build_oracle(n_qubits: int, marked_indices: List[int]) -> QuantumCircuit:
@@ -233,15 +251,26 @@ def quantum_counting(
         )
         return N, 1.0, metrics
     
+    # Time O(N) classical counting as a reference baseline
+    t_classical = time.perf_counter()
+    _ = sum(occupancy)
+    classical_count_time_ms = (time.perf_counter() - t_classical) * 1000
+
     # ------------------------------------------------------------------
     # Circuit cache lookup — skip rebuild + transpile for known patterns
     # ------------------------------------------------------------------
     cache_key = (n_qubits, precision_qubits, frozenset(marked_indices))
     backend = _get_backend()
 
+    circuit_build_time_ms = 0.0
+    transpile_time_ms = 0.0
+
+    # Cache now stores (transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot)
+    # so depth() and count_ops() are never called on a cache hit.
     if cache_key in _circuit_cache:
-        transpiled = _circuit_cache[cache_key]
+        transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot = _circuit_cache[cache_key]
     else:
+        t_build = time.perf_counter()
         # Build oracle and Grover operator
         oracle = build_oracle(n_qubits, marked_indices)
         grover_op = build_grover_operator(n_qubits, oracle)
@@ -278,19 +307,40 @@ def quantum_counting(
 
         # Measure counting register
         qc.measure(counting_reg, classical_reg)
+        circuit_build_time_ms = (time.perf_counter() - t_build) * 1000
 
-        # Transpile once and cache
+        t_transpile = time.perf_counter()
         transpiled = transpile(qc, backend, optimization_level=1)
+        transpile_time_ms = (time.perf_counter() - t_transpile) * 1000
+
+        # ── Compute circuit properties once at build time ──────────────
+        # Model: superconducting qubit gate times (IBM Falcon/Eagle class)
+        _1Q_GATE_NS = 50.0
+        _2Q_GATE_NS = 300.0
+        _MEASURE_NS = 800.0
+        _2Q_GATE_TYPES = frozenset({'cx', 'cz', 'ecr', 'rzz', 'ccx', 'mcx', 'rxx', 'cp'})
+
+        circuit_depth = transpiled.depth()
+        gate_counts = transpiled.count_ops()
+        circuit_gate_count = sum(gate_counts.values())
+
+        n_2q = sum(v for k, v in gate_counts.items() if k in _2Q_GATE_TYPES)
+        n_measure = gate_counts.get('measure', 0)
+        n_1q = circuit_gate_count - n_2q - n_measure
+        gate_time_ns_per_shot = (n_1q * _1Q_GATE_NS + n_2q * _2Q_GATE_NS + n_measure * _MEASURE_NS)
 
         if len(_circuit_cache) >= _CIRCUIT_CACHE_MAX:
             # Evict oldest entry
             _circuit_cache.pop(next(iter(_circuit_cache)))
-        _circuit_cache[cache_key] = transpiled
-    
+        _circuit_cache[cache_key] = (transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot)
+
+    estimated_qpu_time_ms = gate_time_ns_per_shot * shots / 1e6
+
     t_start = time.perf_counter()
     job = backend.run(transpiled, shots=shots)
     result = job.result()
-    quantum_exec_time_ms = (time.perf_counter() - t_start) * 1000
+    simulation_run_time_ms = (time.perf_counter() - t_start) * 1000
+    quantum_exec_time_ms = simulation_run_time_ms  # legacy alias
     counts = result.get_counts()
     
     # Analyze results to estimate M
@@ -364,18 +414,33 @@ def quantum_counting(
     
     estimated_density = M_estimated / N
     
+    simulation_overhead_ms = max(0.0, simulation_run_time_ms - estimated_qpu_time_ms)
+    estimated_speedup_vs_classical = (
+        classical_count_time_ms / estimated_qpu_time_ms
+        if estimated_qpu_time_ms > 0 else 0.0
+    )
+
     metrics = QuantumMetrics(
         estimated_M=M_estimated,
         estimated_density=estimated_density,
         counts=counts,
         quantum_execution_time_ms=quantum_exec_time_ms,
+        classical_count_time_ms=classical_count_time_ms,
+        circuit_build_time_ms=circuit_build_time_ms,
+        transpile_time_ms=transpile_time_ms,
+        simulation_run_time_ms=simulation_run_time_ms,
+        estimated_qpu_time_ms=estimated_qpu_time_ms,
+        simulation_overhead_ms=simulation_overhead_ms,
+        circuit_depth=circuit_depth,
+        circuit_gate_count=circuit_gate_count,
         grid_size_N=N,
         precision_qubits=precision_qubits,
         classical_queries_O_N=classical_queries,
         quantum_queries_O_sqrtN=quantum_queries,
         theoretical_speedup=theoretical_speedup,
+        estimated_speedup_vs_classical=estimated_speedup_vs_classical,
     )
-    
+
     return M_estimated, estimated_density, metrics
 
 
