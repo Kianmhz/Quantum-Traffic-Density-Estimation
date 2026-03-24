@@ -126,8 +126,9 @@ def process_video_with_quantum(
     target_fps = 10
     frame_duration = 1.0 / target_fps
 
-    # Background thread for quantum simulation so it never blocks the UI
+    # Background threads: quantum simulation + logging I/O
     quantum_executor = ThreadPoolExecutor(max_workers=1)
+    logging_executor = ThreadPoolExecutor(max_workers=1)
     quantum_future: Optional[Future] = None
 
     try:
@@ -228,6 +229,7 @@ def process_video_with_quantum(
             )
             
             # Log frame data — only when a matched classical+quantum pair is ready
+            # Logging runs on a background thread to keep file I/O off the UI thread.
             if logger:
                 if use_quantum and quantum_ran_this_frame and pending_classical_count is not None:
                     # Paired log: classical snapshot from submission time + quantum result
@@ -240,7 +242,7 @@ def process_video_with_quantum(
                         last_quantum_count == pending_classical_count
                         if last_quantum_count is not None else None
                     )
-                    logger.log_frame(FrameLog(
+                    _log_entry = FrameLog(
                         timestamp_ms=pending_timestamp_ms,
                         num_detections=len(result.detections),
                         classical_count=pending_classical_count,
@@ -265,11 +267,12 @@ def process_video_with_quantum(
                         classical_queries_O_N=qm.classical_queries_O_N if qm else N,
                         quantum_queries_O_sqrtN=qm.quantum_queries_O_sqrtN if qm else None,
                         theoretical_speedup=qm.theoretical_speedup if qm else None,
-                    ))
+                    )
+                    logging_executor.submit(logger.log_frame, _log_entry)
                     pending_classical_count = None  # consumed — wait for next trigger
                 elif not use_quantum and trigger:
                     # Classical-only logging (no quantum)
-                    logger.log_frame(FrameLog(
+                    _log_entry = FrameLog(
                         timestamp_ms=pending_timestamp_ms,
                         num_detections=len(result.detections),
                         classical_count=last_classical_count,
@@ -286,7 +289,8 @@ def process_video_with_quantum(
                         classical_queries_O_N=N,
                         quantum_queries_O_sqrtN=None,
                         theoretical_speedup=None,
-                    ))
+                    )
+                    logging_executor.submit(logger.log_frame, _log_entry)
             
             # Measure processing elapsed (used for the frame-rate limiter)
             elapsed = time.time() - start_time
@@ -303,17 +307,18 @@ def process_video_with_quantum(
             frame_wall_time = time.time() - start_time
             fps_estimate = 1 / frame_wall_time if frame_wall_time > 0 else 0
 
-            # Print progress (after waitKey so fps reflects actual playback rate)
-            dir_info = ""
-            if dir_data:
-                dir_info = (f"  A={dir_data['density_A']*100:.1f}% "
-                            f"B={dir_data['density_B']*100:.1f}%")
-            print(f"\rFrame {result.frame_number}: "
-                  f"Vehicles={len(result.detections)}, "
-                  f"Classical={classical_density*100:.1f}%, "
-                  f"{'Quantum=' + f'{quantum_density*100:.1f}%' if quantum_density else ''}"
-                  f"{dir_info} "
-                  f"({fps_estimate:.1f} fps)", end="")
+            # Print progress every 5 frames to reduce terminal I/O overhead
+            if result.frame_number % 5 == 0:
+                dir_info = ""
+                if dir_data:
+                    dir_info = (f"  A={dir_data['density_A']*100:.1f}% "
+                                f"B={dir_data['density_B']*100:.1f}%")
+                print(f"\rFrame {result.frame_number}: "
+                      f"Vehicles={len(result.detections)}, "
+                      f"Classical={classical_density*100:.1f}%, "
+                      f"{'Quantum=' + f'{quantum_density*100:.1f}%' if quantum_density else ''}"
+                      f"{dir_info} "
+                      f"({fps_estimate:.1f} fps)", end="")
             
             if key == ord('q'):
                 print("\nQuitting...")
@@ -328,10 +333,10 @@ def process_video_with_quantum(
                 print(f"\nSaved screenshot: {screenshot_path}")
     
     finally:
-        # Gracefully stop the quantum background thread
         if quantum_future is not None:
             quantum_future.cancel()
         quantum_executor.shutdown(wait=False)
+        logging_executor.shutdown(wait=True)   # flush pending log writes
         cv2.destroyAllWindows()
     
     # Print summary

@@ -53,7 +53,7 @@ class VideoProcessor:
     
     def __init__(
         self,
-        model_path: str = "yolov8n.pt",
+        model_path: str = "yolov8m.pt",
         confidence_threshold: float = 0.5,
         device: str = "cuda"
     ):

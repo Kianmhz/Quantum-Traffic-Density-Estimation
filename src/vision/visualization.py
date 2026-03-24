@@ -40,71 +40,40 @@ def draw_grid_overlay(
 ) -> np.ndarray:
     """
     Draw a colored grid overlay showing occupied/empty regions.
-
-    Occupied cells are drawn with a vivid red fill + a red border so they
-    pop against the video.  Empty cells use a barely visible dark tint so
-    the contrast between occupied and empty is immediately obvious.
-    
-    Args:
-        frame: BGR image (numpy array).
-        rows: Number of grid rows.
-        cols: Number of grid columns.
-        occupancy: Binary list (1 = occupied, 0 = empty).
-        alpha: Transparency of the overlay (0-1).  Higher = more visible.
-        show_indices: Whether to draw region index numbers.
-    
-    Returns:
-        Frame with overlay drawn.
+    Draws in-place on `frame` (caller should pass a copy if needed).
     """
-    overlay = frame.copy()
     h, w = frame.shape[:2]
-    
     regions = make_grid(rows, cols, w, h)
-    
-    # Use different alpha for occupied vs empty to boost contrast
-    alpha_occ = min(alpha + 0.15, 1.0)   # occupied gets a stronger tint
-    alpha_emp = max(alpha - 0.15, 0.05)   # empty gets a weaker tint
 
-    # Build two separate overlays so we can blend at different strengths
-    occ_overlay = frame.copy()
-    emp_overlay = frame.copy()
+    alpha_occ = min(alpha + 0.15, 1.0)
+    alpha_emp = max(alpha - 0.15, 0.05)
 
+    # Single overlay — blend once instead of twice
+    overlay = frame.copy()
+    for i, (x1, y1, x2, y2) in enumerate(regions):
+        color = COLORS['occupied'] if occupancy[i] == 1 else COLORS['empty']
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
+
+    # Blend with a middle alpha (occupied dominates visually via color contrast)
+    avg_alpha = (alpha_occ + alpha_emp) / 2
+    cv2.addWeighted(overlay, avg_alpha, frame, 1 - avg_alpha, 0, dst=frame)
+
+    # Solid border around occupied cells for extra pop
     for i, (x1, y1, x2, y2) in enumerate(regions):
         if occupancy[i] == 1:
-            cv2.rectangle(occ_overlay, (x1, y1), (x2, y2), COLORS['occupied'], -1)
-        else:
-            cv2.rectangle(emp_overlay, (x1, y1), (x2, y2), COLORS['empty'], -1)
-        
-        if show_indices:
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            cv2.putText(
-                occ_overlay, str(i), (cx - 10, cy + 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLORS['text'], 1
-            )
-    
-    # Blend occupied overlay (strong)
-    result = cv2.addWeighted(occ_overlay, alpha_occ, frame, 1 - alpha_occ, 0)
-    # Blend empty overlay on top (subtle)
-    result = cv2.addWeighted(emp_overlay, alpha_emp, result, 1 - alpha_emp, 0)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), COLORS['occupied_border'], 3)
 
-    # Draw a solid border around occupied cells for extra pop
-    for i, (x1, y1, x2, y2) in enumerate(regions):
-        if occupancy[i] == 1:
-            cv2.rectangle(result, (x1, y1), (x2, y2), COLORS['occupied_border'], 3)
-    
-    # Draw grid lines
+    # Grid lines
     cell_w = w / cols
     cell_h = h / rows
-    
     for c in range(cols + 1):
         x = int(c * cell_w)
-        cv2.line(result, (x, 0), (x, h), COLORS['grid_line'], 1)
-    
+        cv2.line(frame, (x, 0), (x, h), COLORS['grid_line'], 1)
     for r in range(rows + 1):
         y = int(r * cell_h)
-        cv2.line(result, (0, y), (w, y), COLORS['grid_line'], 1)
-    
-    return result
+        cv2.line(frame, (0, y), (w, y), COLORS['grid_line'], 1)
+
+    return frame
 
 
 def draw_bounding_boxes(
@@ -129,11 +98,9 @@ def draw_bounding_boxes(
     Returns:
         Frame with boxes drawn.
     """
-    result = frame.copy()
-    
     for i, (x1, y1, x2, y2) in enumerate(boxes):
-        cv2.rectangle(result, (x1, y1), (x2, y2), color, thickness)
-        
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+
         # Draw label if provided
         if labels or confidences:
             label_parts = []
@@ -141,23 +108,22 @@ def draw_bounding_boxes(
                 label_parts.append(labels[i])
             if confidences and i < len(confidences):
                 label_parts.append(f"{confidences[i]:.2f}")
-            
+
             label = " ".join(label_parts)
             if label:
-                # Background for text
                 (text_w, text_h), _ = cv2.getTextSize(
                     label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
                 )
                 cv2.rectangle(
-                    result, (x1, y1 - text_h - 8), (x1 + text_w + 4, y1),
+                    frame, (x1, y1 - text_h - 8), (x1 + text_w + 4, y1),
                     COLORS['text_bg'], -1
                 )
                 cv2.putText(
-                    result, label, (x1 + 2, y1 - 4),
+                    frame, label, (x1 + 2, y1 - 4),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS['text'], 1
                 )
-    
-    return result
+
+    return frame
 
 
 def draw_density_info(
@@ -186,68 +152,53 @@ def draw_density_info(
     Returns:
         Frame with info panel drawn.
     """
-    result = frame.copy()
     h, w = frame.shape[:2]
-    
-    # Build info lines
-    lines = [
-        f"Classical Density: {classical_density*100:.1f}%"
-    ]
-    
+
+    lines = [f"Classical Density: {classical_density*100:.1f}%"]
     if quantum_density is not None:
         lines.append(f"Quantum Density:   {quantum_density*100:.1f}%")
-    
     if classical_count is not None and total_regions is not None:
         lines.append(f"Occupied: {classical_count}/{total_regions} regions")
-    
     if quantum_count is not None:
         lines.append(f"Quantum Est.: {quantum_count} regions")
-    
     if num_detections is not None:
         lines.append(f"Vehicles Detected: {num_detections}")
-    
-    # Calculate panel size
+
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.6
     thickness = 1
     padding = 10
     line_height = 25
-    
+
     max_text_width = max(
         cv2.getTextSize(line, font, font_scale, thickness)[0][0]
         for line in lines
     )
-    
     panel_w = max_text_width + 2 * padding
     panel_h = len(lines) * line_height + 2 * padding
-    
-    # Determine position
+
     if position == "top-left":
         px, py = 10, 10
     elif position == "top-right":
         px, py = w - panel_w - 10, 10
     elif position == "bottom-left":
         px, py = 10, h - panel_h - 10
-    else:  # bottom-right
+    else:
         px, py = w - panel_w - 10, h - panel_h - 10
-    
-    # Draw semi-transparent background
-    overlay = result.copy()
-    cv2.rectangle(
-        overlay, (px, py), (px + panel_w, py + panel_h),
-        COLORS['text_bg'], -1
-    )
-    result = cv2.addWeighted(overlay, 0.7, result, 0.3, 0)
-    
-    # Draw text
+
+    # ROI-based alpha blend — only copy the small panel region, not the whole frame
+    x1, y1 = max(px, 0), max(py, 0)
+    x2, y2 = min(px + panel_w, w), min(py + panel_h, h)
+    roi = frame[y1:y2, x1:x2]
+    dark = np.zeros_like(roi)
+    cv2.addWeighted(dark, 0.7, roi, 0.3, 0, dst=roi)
+
     for i, line in enumerate(lines):
         y = py + padding + (i + 1) * line_height - 5
-        cv2.putText(
-            result, line, (px + padding, y),
-            font, font_scale, COLORS['text'], thickness
-        )
-    
-    return result
+        cv2.putText(frame, line, (px + padding, y),
+                    font, font_scale, COLORS['text'], thickness)
+
+    return frame
 
 
 def draw_direction_grid_overlay(
@@ -283,62 +234,48 @@ def draw_direction_grid_overlay(
     set_A = set(indices_A)
     set_B = set(indices_B)
 
-    alpha_occ = min(alpha + 0.15, 1.0)
-    alpha_emp = max(alpha - 0.15, 0.05)
-
-    occ_overlay = frame.copy()
-    emp_overlay = frame.copy()
-
+    # Single overlay — one copy, one blend
+    overlay = frame.copy()
     for i, (x1, y1, x2, y2) in enumerate(regions):
         if i in set_A:
-            is_occ = occupancy_A[i] == 1
-            color = COLORS['dir_a'] if is_occ else COLORS['dir_a_empty']
+            color = COLORS['dir_a'] if occupancy_A[i] == 1 else COLORS['dir_a_empty']
         elif i in set_B:
-            is_occ = occupancy_B[i] == 1
-            color = COLORS['dir_b'] if is_occ else COLORS['dir_b_empty']
+            color = COLORS['dir_b'] if occupancy_B[i] == 1 else COLORS['dir_b_empty']
         else:
-            is_occ = False
             color = COLORS['empty']
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
 
-        if is_occ:
-            cv2.rectangle(occ_overlay, (x1, y1), (x2, y2), color, -1)
-        else:
-            cv2.rectangle(emp_overlay, (x1, y1), (x2, y2), color, -1)
-
-    # Blend occupied (strong) then empty (subtle)
-    result = cv2.addWeighted(occ_overlay, alpha_occ, frame, 1 - alpha_occ, 0)
-    result = cv2.addWeighted(emp_overlay, alpha_emp, result, 1 - alpha_emp, 0)
+    cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, dst=frame)
 
     # Thick coloured border around occupied cells
     for i, (x1, y1, x2, y2) in enumerate(regions):
         if i in set_A and occupancy_A[i] == 1:
-            cv2.rectangle(result, (x1, y1), (x2, y2), COLORS['dir_a_border'], 3)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), COLORS['dir_a_border'], 3)
         elif i in set_B and occupancy_B[i] == 1:
-            cv2.rectangle(result, (x1, y1), (x2, y2), COLORS['dir_b_border'], 3)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), COLORS['dir_b_border'], 3)
 
     # Grid lines
     cell_w = w / cols
     cell_h = h / rows
     for c in range(cols + 1):
         x = int(c * cell_w)
-        cv2.line(result, (x, 0), (x, h), COLORS['grid_line'], 1)
+        cv2.line(frame, (x, 0), (x, h), COLORS['grid_line'], 1)
     for r in range(rows + 1):
         y = int(r * cell_h)
-        cv2.line(result, (0, y), (w, y), COLORS['grid_line'], 1)
+        cv2.line(frame, (0, y), (w, y), COLORS['grid_line'], 1)
 
-    # Draw split divider line (thicker)
+    # Split divider line
     if len(indices_A) > 0 and len(indices_B) > 0:
-        # Determine split orientation from region indices
         r_a, c_a = index_to_rc(indices_A[-1], cols)
         r_b, c_b = index_to_rc(indices_B[0], cols)
-        if c_a < c_b:  # vertical split
+        if c_a < c_b:
             mid_x = int((cols // 2) * cell_w)
-            cv2.line(result, (mid_x, 0), (mid_x, h), (0, 255, 255), 3)
-        else:  # horizontal split
+            cv2.line(frame, (mid_x, 0), (mid_x, h), (0, 255, 255), 3)
+        else:
             mid_y = int((rows // 2) * cell_h)
-            cv2.line(result, (0, mid_y), (w, mid_y), (0, 255, 255), 3)
+            cv2.line(frame, (0, mid_y), (w, mid_y), (0, 255, 255), 3)
 
-    return result
+    return frame
 
 
 def draw_direction_comparison(
@@ -367,10 +304,8 @@ def draw_direction_comparison(
     Returns:
         Frame with comparison panel drawn.
     """
-    result = frame.copy()
     h, w = frame.shape[:2]
 
-    # Determine which direction is denser
     if density_A > density_B:
         comparison = "A is denser"
     elif density_B > density_A:
@@ -409,13 +344,13 @@ def draw_direction_comparison(
     else:
         px, py = w - panel_w - 10, h - panel_h - 10
 
-    # Semi-transparent background
-    overlay = result.copy()
-    cv2.rectangle(overlay, (px, py), (px + panel_w, py + panel_h),
-                  COLORS['text_bg'], -1)
-    result = cv2.addWeighted(overlay, 0.7, result, 0.3, 0)
+    # ROI-based alpha blend — only darken the small panel region
+    x1, y1 = max(px, 0), max(py, 0)
+    x2, y2 = min(px + panel_w, w), min(py + panel_h, h)
+    roi = frame[y1:y2, x1:x2]
+    dark = np.zeros_like(roi)
+    cv2.addWeighted(dark, 0.7, roi, 0.3, 0, dst=roi)
 
-    # Draw text with colour coding per direction
     for i, line in enumerate(lines):
         y = py + padding + (i + 1) * line_height - 5
         if line.startswith("Dir A"):
@@ -424,10 +359,10 @@ def draw_direction_comparison(
             color = COLORS['dir_b']
         else:
             color = COLORS['text']
-        cv2.putText(result, line, (px + padding, y),
+        cv2.putText(frame, line, (px + padding, y),
                     font, font_scale, color, thickness)
 
-    return result
+    return frame
 
 
 def create_visualization(
@@ -472,12 +407,12 @@ def create_visualization(
     Returns:
         Fully annotated frame.
     """
+    # Single copy — all draw functions work in-place from here
     result = frame.copy()
 
-    # --- Grid overlay ---
     if show_grid:
         if direction_data is not None:
-            result = draw_direction_grid_overlay(
+            draw_direction_grid_overlay(
                 result, rows, cols,
                 direction_data["occupancy_A"],
                 direction_data["occupancy_B"],
@@ -486,29 +421,27 @@ def create_visualization(
                 alpha=grid_alpha,
             )
         else:
-            result = draw_grid_overlay(result, rows, cols, occupancy, alpha=grid_alpha)
+            draw_grid_overlay(result, rows, cols, occupancy, alpha=grid_alpha)
 
-    # --- Bounding boxes (colour-coded by direction when available) ---
     if show_boxes:
         if direction_data is not None:
-            result = draw_bounding_boxes(
+            draw_bounding_boxes(
                 result, direction_data["boxes_A"],
                 color=COLORS['dir_a'], thickness=2,
             )
-            result = draw_bounding_boxes(
+            draw_bounding_boxes(
                 result, direction_data["boxes_B"],
                 color=COLORS['dir_b'], thickness=2,
             )
         else:
-            result = draw_bounding_boxes(
+            draw_bounding_boxes(
                 result, boxes, labels=labels, confidences=confidences
             )
 
-    # --- Info panels ---
     if show_info:
         classical_count = sum(occupancy)
         total_regions = len(occupancy)
-        result = draw_density_info(
+        draw_density_info(
             result,
             classical_density=classical_density,
             quantum_density=quantum_density,
@@ -519,9 +452,8 @@ def create_visualization(
             position="top-left",
         )
 
-        # Direction comparison panel (top-right)
         if direction_data is not None:
-            result = draw_direction_comparison(
+            draw_direction_comparison(
                 result,
                 density_A=direction_data["density_A"],
                 density_B=direction_data["density_B"],
