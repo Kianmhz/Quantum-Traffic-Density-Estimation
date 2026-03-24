@@ -42,14 +42,14 @@ def push_metrics_to_grafana(row: dict) -> int | None:
         "traffic_theoretical_speedup":          row.get("theoretical_speedup"),
         # ── Timing breakdown ──────────────────────────────────────────────
         # O(N) classical counting time (reference baseline)
-        "traffic_classical_count_time_ms":      row.get("classical_count_time_ms"),
+        "traffic_classical_count_time_ns":      row.get("classical_count_time_ns"),
         # Classical preprocessing overhead (0 on cache hits)
         "traffic_circuit_build_time_ms":        row.get("circuit_build_time_ms"),
         "traffic_transpile_time_ms":            row.get("transpile_time_ms"),
         # Aer simulator run time — NOT actual quantum hardware time
         "traffic_simulation_run_time_ms":       row.get("simulation_run_time_ms"),
         # Estimated wall-clock time on real superconducting QPU hardware
-        "traffic_estimated_qpu_time_ms":        row.get("estimated_qpu_time_ms"),
+        "traffic_estimated_qpu_time_ns":        row.get("estimated_qpu_time_ns"),
         # Simulation tax: sim_run_time - estimated_qpu_time
         "traffic_simulation_overhead_ms":       row.get("simulation_overhead_ms"),
         # Circuit properties driving the QPU estimate

@@ -63,15 +63,15 @@ class QuantumMetrics:
     counts: Dict[str, int] = field(default_factory=dict)
     # ── Timing breakdown ──────────────────────────────────────────────────
     # Time to run O(N) classical counting (reference baseline)
-    classical_count_time_ms: float = 0.0
+    classical_count_time_ns: float = 0.0
     # Classical preprocessing overhead (both are 0 on cache hits)
     circuit_build_time_ms: float = 0.0
     transpile_time_ms: float = 0.0
     # Time Aer spends simulating the circuit classically (NOT quantum time)
     simulation_run_time_ms: float = 0.0
     # Estimated wall-clock time on real superconducting QPU hardware
-    estimated_qpu_time_ms: float = 0.0
-    # simulation_run_time_ms - estimated_qpu_time_ms (pure simulation tax)
+    estimated_qpu_time_ns: float = 0.0
+    # simulation_run_time_ms - estimated_qpu_time_ns converted to ms (pure simulation tax)
     simulation_overhead_ms: float = 0.0
     # ── Circuit properties (used for QPU estimate) ────────────────────────
     circuit_depth: int = 0
@@ -252,7 +252,7 @@ def quantum_counting(
     # Time O(N) classical counting as a reference baseline
     t_classical = time.perf_counter()
     _ = sum(occupancy)
-    classical_count_time_ms = (time.perf_counter() - t_classical) * 1000
+    classical_count_time_ns = (time.perf_counter() - t_classical) * 1e9
 
     # ------------------------------------------------------------------
     # Circuit cache lookup — skip rebuild + transpile for known patterns
@@ -327,8 +327,8 @@ def quantum_counting(
     # classical counting time scaled down by the theoretical speedup.
     # Everything measured by Aer (sim_run) is simulation overhead — on a
     # real QPU you'd just run the circuit at hardware speed.
-    estimated_qpu_time_ms = (
-        classical_count_time_ms / theoretical_speedup
+    estimated_qpu_time_ns = (
+        classical_count_time_ns / theoretical_speedup
         if theoretical_speedup > 0 else 0.0
     )
 
@@ -411,7 +411,12 @@ def quantum_counting(
     
     # The entire simulation pipeline is overhead — on a real QPU none of
     # this would exist.  Overhead = build + transpile + Aer simulation.
-    simulation_overhead_ms = circuit_build_time_ms + transpile_time_ms + simulation_run_time_ms
+    simulation_overhead_ms = (
+        circuit_build_time_ms
+        + transpile_time_ms
+        + simulation_run_time_ms
+        - (estimated_qpu_time_ns / 1e6)
+    )
     # Speedup equals √N by construction (query-complexity model)
     estimated_speedup_vs_classical = theoretical_speedup
 
@@ -419,11 +424,11 @@ def quantum_counting(
         estimated_M=M_estimated,
         estimated_density=estimated_density,
         counts=counts,
-        classical_count_time_ms=classical_count_time_ms,
+        classical_count_time_ns=classical_count_time_ns,
         circuit_build_time_ms=circuit_build_time_ms,
         transpile_time_ms=transpile_time_ms,
         simulation_run_time_ms=simulation_run_time_ms,
-        estimated_qpu_time_ms=estimated_qpu_time_ms,
+        estimated_qpu_time_ns=estimated_qpu_time_ns,
         simulation_overhead_ms=simulation_overhead_ms,
         circuit_depth=circuit_depth,
         circuit_gate_count=circuit_gate_count,
