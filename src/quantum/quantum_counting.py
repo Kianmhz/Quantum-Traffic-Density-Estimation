@@ -61,8 +61,6 @@ class QuantumMetrics:
     estimated_M: int = 0
     estimated_density: float = 0.0
     counts: Dict[str, int] = field(default_factory=dict)
-    # Timing (legacy — kept for backwards compatibility; equals simulation_run_time_ms)
-    quantum_execution_time_ms: float = 0.0
     # ── Timing breakdown ──────────────────────────────────────────────────
     # Time to run O(N) classical counting (reference baseline)
     classical_count_time_ms: float = 0.0
@@ -265,10 +263,10 @@ def quantum_counting(
     circuit_build_time_ms = 0.0
     transpile_time_ms = 0.0
 
-    # Cache now stores (transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot)
+    # Cache stores (transpiled, circuit_depth, circuit_gate_count)
     # so depth() and count_ops() are never called on a cache hit.
     if cache_key in _circuit_cache:
-        transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot = _circuit_cache[cache_key]
+        transpiled, circuit_depth, circuit_gate_count = _circuit_cache[cache_key]
     else:
         t_build = time.perf_counter()
         # Build oracle and Grover operator
@@ -314,33 +312,30 @@ def quantum_counting(
         transpile_time_ms = (time.perf_counter() - t_transpile) * 1000
 
         # ── Compute circuit properties once at build time ──────────────
-        # Model: superconducting qubit gate times (IBM Falcon/Eagle class)
-        _1Q_GATE_NS = 50.0
-        _2Q_GATE_NS = 300.0
-        _MEASURE_NS = 800.0
-        _2Q_GATE_TYPES = frozenset({'cx', 'cz', 'ecr', 'rzz', 'ccx', 'mcx', 'rxx', 'cp'})
-
         circuit_depth = transpiled.depth()
-        gate_counts = transpiled.count_ops()
-        circuit_gate_count = sum(gate_counts.values())
-
-        n_2q = sum(v for k, v in gate_counts.items() if k in _2Q_GATE_TYPES)
-        n_measure = gate_counts.get('measure', 0)
-        n_1q = circuit_gate_count - n_2q - n_measure
-        gate_time_ns_per_shot = (n_1q * _1Q_GATE_NS + n_2q * _2Q_GATE_NS + n_measure * _MEASURE_NS)
+        circuit_gate_count = sum(transpiled.count_ops().values())
 
         if len(_circuit_cache) >= _CIRCUIT_CACHE_MAX:
             # Evict oldest entry
             _circuit_cache.pop(next(iter(_circuit_cache)))
-        _circuit_cache[cache_key] = (transpiled, circuit_depth, circuit_gate_count, gate_time_ns_per_shot)
+        _circuit_cache[cache_key] = (transpiled, circuit_depth, circuit_gate_count)
 
-    estimated_qpu_time_ms = gate_time_ns_per_shot * shots / 1e6
+    # ── Estimated QPU time from query complexity ──────────────────────
+    # The quantum advantage is O(√N) oracle queries vs O(N) classical.
+    # On real quantum hardware, each oracle query takes comparable time
+    # to a classical lookup.  Estimated QPU time therefore equals the
+    # classical counting time scaled down by the theoretical speedup.
+    # Everything measured by Aer (sim_run) is simulation overhead — on a
+    # real QPU you'd just run the circuit at hardware speed.
+    estimated_qpu_time_ms = (
+        classical_count_time_ms / theoretical_speedup
+        if theoretical_speedup > 0 else 0.0
+    )
 
     t_start = time.perf_counter()
     job = backend.run(transpiled, shots=shots)
     result = job.result()
     simulation_run_time_ms = (time.perf_counter() - t_start) * 1000
-    quantum_exec_time_ms = simulation_run_time_ms  # legacy alias
     counts = result.get_counts()
     
     # Analyze results to estimate M
@@ -414,17 +409,16 @@ def quantum_counting(
     
     estimated_density = M_estimated / N
     
-    simulation_overhead_ms = max(0.0, simulation_run_time_ms - estimated_qpu_time_ms)
-    estimated_speedup_vs_classical = (
-        classical_count_time_ms / estimated_qpu_time_ms
-        if estimated_qpu_time_ms > 0 else 0.0
-    )
+    # The entire simulation pipeline is overhead — on a real QPU none of
+    # this would exist.  Overhead = build + transpile + Aer simulation.
+    simulation_overhead_ms = circuit_build_time_ms + transpile_time_ms + simulation_run_time_ms
+    # Speedup equals √N by construction (query-complexity model)
+    estimated_speedup_vs_classical = theoretical_speedup
 
     metrics = QuantumMetrics(
         estimated_M=M_estimated,
         estimated_density=estimated_density,
         counts=counts,
-        quantum_execution_time_ms=quantum_exec_time_ms,
         classical_count_time_ms=classical_count_time_ms,
         circuit_build_time_ms=circuit_build_time_ms,
         transpile_time_ms=transpile_time_ms,

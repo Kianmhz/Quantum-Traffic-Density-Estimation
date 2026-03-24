@@ -38,7 +38,6 @@ def push_metrics_to_grafana(row: dict) -> int | None:
         "traffic_density_A":                    row.get("density_A"),
         "traffic_density_B":                    row.get("density_B"),
         "traffic_num_detections":               row.get("num_detections"),
-        "traffic_quantum_exec_ms":              row.get("quantum_execution_time_ms"),
         "traffic_count_agreement":              1 if str(row.get("count_agreement")) == "True" else 0,
         "traffic_theoretical_speedup":          row.get("theoretical_speedup"),
         # ── Timing breakdown ──────────────────────────────────────────────

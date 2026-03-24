@@ -30,7 +30,6 @@ class FrameLog:
     vehicles_A: Optional[int] = None
     vehicles_B: Optional[int] = None
     # --- Timing breakdown ---
-    quantum_execution_time_ms: Optional[float] = None   # legacy (= simulation_run_time_ms)
     classical_count_time_ms: Optional[float] = None     # O(N) classical reference time
     circuit_build_time_ms: Optional[float] = None       # build overhead (0 if cached)
     transpile_time_ms: Optional[float] = None           # transpile overhead (0 if cached)
@@ -76,7 +75,6 @@ class SessionStats:
     min_error: int = 0
     std_error: float = 0.0
     # Timing
-    avg_quantum_time_ms: float = 0.0
     avg_classical_count_time_ms: float = 0.0
     avg_simulation_run_time_ms: float = 0.0
     avg_estimated_qpu_time_ms: float = 0.0
@@ -142,7 +140,6 @@ class DensityLogger:
             # Direction density
             'density_A', 'density_B', 'vehicles_A', 'vehicles_B',
             # Timing breakdown
-            'quantum_execution_time_ms',
             'classical_count_time_ms',
             'circuit_build_time_ms',
             'transpile_time_ms',
@@ -187,7 +184,6 @@ class DensityLogger:
                 "density_A":                    log.density_A,
                 "density_B":                    log.density_B,
                 "num_detections":               log.num_detections,
-                "quantum_execution_time_ms":    log.quantum_execution_time_ms,
                 "count_agreement":              log.count_agreement,
                 "theoretical_speedup":          log.theoretical_speedup,
                 # New timing breakdown
@@ -219,7 +215,6 @@ class DensityLogger:
                 log.vehicles_A if log.vehicles_A is not None else "",
                 log.vehicles_B if log.vehicles_B is not None else "",
                 # Timing breakdown
-                f"{log.quantum_execution_time_ms:.4f}" if log.quantum_execution_time_ms is not None else "",
                 f"{log.classical_count_time_ms:.6f}" if log.classical_count_time_ms is not None else "",
                 f"{log.circuit_build_time_ms:.2f}" if log.circuit_build_time_ms is not None else "",
                 f"{log.transpile_time_ms:.2f}" if log.transpile_time_ms is not None else "",
@@ -274,10 +269,6 @@ class DensityLogger:
                 stats.avg_relative_error = statistics.mean(rel_errors)
         
         # Quantum timing
-        q_times = [l.quantum_execution_time_ms for l in self.logs if l.quantum_execution_time_ms is not None]
-        if q_times:
-            stats.avg_quantum_time_ms = statistics.mean(q_times)
-
         classical_times = [l.classical_count_time_ms for l in self.logs if l.classical_count_time_ms is not None]
         if classical_times:
             stats.avg_classical_count_time_ms = statistics.mean(classical_times)
@@ -346,7 +337,7 @@ class DensityLogger:
             f.write("Processing Statistics:\n")
             f.write(f"  Total frames processed: {stats.total_frames}\n")
             f.write(f"  Frames with quantum counting: {stats.quantum_frames}\n")
-            f.write(f"  Average quantum execution time: {stats.avg_quantum_time_ms:.2f}ms\n\n")
+            f.write(f"  Average simulation run time: {stats.avg_simulation_run_time_ms:.2f}ms\n\n")
             
             # Density stats
             f.write("Density Statistics:\n")
@@ -410,7 +401,7 @@ class DensityLogger:
         print("=" * 60)
         print(f"Total frames: {stats.total_frames}")
         print(f"Quantum frames: {stats.quantum_frames}")
-        print(f"Avg quantum execution: {stats.avg_quantum_time_ms:.2f}ms")
+        print(f"Avg simulation run: {stats.avg_simulation_run_time_ms:.2f}ms")
         print(f"\nDensity Comparison:")
         print(f"  Classical avg: {stats.avg_classical_density*100:.2f}%")
         print(f"  Quantum avg:   {stats.avg_quantum_density*100:.2f}%")
