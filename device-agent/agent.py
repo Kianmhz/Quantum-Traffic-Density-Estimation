@@ -46,7 +46,8 @@ def start():
     video_source = body.get("video_source") or None
     rows = int(body["rows"]) if body.get("rows") is not None else None
     cols = int(body["cols"]) if body.get("cols") is not None else None
-    success, message = runner.start(video_source=video_source, rows=rows, cols=cols)
+    direction_split = body["direction_split"] if "direction_split" in body else "UNSET"
+    success, message = runner.start(video_source=video_source, rows=rows, cols=cols, direction_split=direction_split)
     code = 200 if success else 409
     return jsonify({"success": success, "message": message}), code
 

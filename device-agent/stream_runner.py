@@ -55,6 +55,7 @@ class PipelineStreamRunner:
         self._video_source: str = config.VIDEO_SOURCE
         self._rows: int = config.ROWS
         self._cols: int = config.COLS
+        self._direction_split: Optional[str] = config.DIRECTION_SPLIT
 
     def is_running(self) -> bool:
         with self._state_lock:
@@ -70,6 +71,7 @@ class PipelineStreamRunner:
         video_source: Optional[str] = None,
         rows: Optional[int] = None,
         cols: Optional[int] = None,
+        direction_split: Optional[str] = "UNSET",
     ) -> tuple[bool, str]:
         if self.is_running():
             return False, "Already running"
@@ -83,6 +85,7 @@ class PipelineStreamRunner:
         self._video_source = video_source if video_source is not None else config.VIDEO_SOURCE
         self._rows = effective_rows
         self._cols = effective_cols
+        self._direction_split = config.DIRECTION_SPLIT if direction_split == "UNSET" else direction_split
 
         self._stop_event.clear()
         with self._state_lock:
@@ -233,14 +236,14 @@ class PipelineStreamRunner:
                 classical_density = classical_count / n_regions
 
                 direction_data = None
-                if config.DIRECTION_SPLIT:
+                if self._direction_split:
                     direction_data = directional_occupancy(
                         result.boxes_xyxy,
                         self._rows,
                         self._cols,
                         frame_w,
                         frame_h,
-                        split=config.DIRECTION_SPLIT,
+                        split=self._direction_split,
                     )
 
                 if config.USE_QUANTUM and quantum_executor is not None:
