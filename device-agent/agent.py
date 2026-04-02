@@ -10,7 +10,7 @@ Endpoints:
 
 import logging
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 
 import config
@@ -42,7 +42,11 @@ def status():
 
 @app.post("/start")
 def start():
-    success, message = runner.start()
+    body = request.get_json(silent=True) or {}
+    video_source = body.get("video_source") or None
+    rows = int(body["rows"]) if body.get("rows") is not None else None
+    cols = int(body["cols"]) if body.get("cols") is not None else None
+    success, message = runner.start(video_source=video_source, rows=rows, cols=cols)
     code = 200 if success else 409
     return jsonify({"success": success, "message": message}), code
 

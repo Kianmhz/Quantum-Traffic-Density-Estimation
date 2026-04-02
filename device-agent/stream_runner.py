@@ -51,6 +51,11 @@ class PipelineStreamRunner:
         self._latest_jpeg: Optional[bytes] = None
         self._state_lock = threading.Lock()
 
+        # Runtime params (set on start, fall back to config defaults)
+        self._video_source: str = config.VIDEO_SOURCE
+        self._rows: int = config.ROWS
+        self._cols: int = config.COLS
+
     def is_running(self) -> bool:
         with self._state_lock:
             return self._running
@@ -60,12 +65,24 @@ class PipelineStreamRunner:
         with self._state_lock:
             return self._last_error
 
-    def start(self) -> tuple[bool, str]:
+    def start(
+        self,
+        video_source: Optional[str] = None,
+        rows: Optional[int] = None,
+        cols: Optional[int] = None,
+    ) -> tuple[bool, str]:
         if self.is_running():
             return False, "Already running"
 
-        if not _is_power_of_two(config.ROWS * config.COLS):
-            return False, "Grid size ROWS*COLS must be a power of 2"
+        effective_rows = rows if rows is not None else config.ROWS
+        effective_cols = cols if cols is not None else config.COLS
+
+        if not _is_power_of_two(effective_rows * effective_cols):
+            return False, f"Grid size {effective_rows}×{effective_cols}={effective_rows * effective_cols} must be a power of 2 (e.g. 4×4, 4×8, 8×8)"
+
+        self._video_source = video_source if video_source is not None else config.VIDEO_SOURCE
+        self._rows = effective_rows
+        self._cols = effective_cols
 
         self._stop_event.clear()
         with self._state_lock:
@@ -147,7 +164,7 @@ class PipelineStreamRunner:
         dropped_grafana_pushes = 0
 
         try:
-            source_path = _resolve_video_source(config.VIDEO_SOURCE)
+            source_path = _resolve_video_source(self._video_source)
 
             log.info("Opening video file: %s", source_path)
             if not source_path.exists():
@@ -163,7 +180,7 @@ class PipelineStreamRunner:
                 device=config.YOLO_DEVICE,
             )
 
-            n_regions = config.ROWS * config.COLS
+            n_regions = self._rows * self._cols
             target_frame_duration = 1.0 / max(config.TARGET_FPS, 1)
 
             last_quantum_density = None
@@ -207,8 +224,8 @@ class PipelineStreamRunner:
 
                 occupancy = boxes_to_occupancy(
                     result.boxes_xyxy,
-                    config.ROWS,
-                    config.COLS,
+                    self._rows,
+                    self._cols,
                     frame_w,
                     frame_h,
                 )
@@ -219,8 +236,8 @@ class PipelineStreamRunner:
                 if config.DIRECTION_SPLIT:
                     direction_data = directional_occupancy(
                         result.boxes_xyxy,
-                        config.ROWS,
-                        config.COLS,
+                        self._rows,
+                        self._cols,
                         frame_w,
                         frame_h,
                         split=config.DIRECTION_SPLIT,
@@ -259,8 +276,8 @@ class PipelineStreamRunner:
                     frame=result.frame,
                     boxes=result.boxes_xyxy,
                     occupancy=occupancy,
-                    rows=config.ROWS,
-                    cols=config.COLS,
+                    rows=self._rows,
+                    cols=self._cols,
                     classical_density=classical_density,
                     quantum_density=last_quantum_density,
                     quantum_count=last_quantum_count,
