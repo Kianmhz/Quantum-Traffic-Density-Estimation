@@ -123,7 +123,7 @@ def process_video_with_quantum(
     pending_dir_data = None
     pending_timestamp_ms: Optional[float] = None
 
-    target_fps = 10
+    target_fps = 20
     frame_duration = 1.0 / target_fps
 
     # Background threads: quantum simulation + logging I/O
@@ -364,7 +364,7 @@ def main():
     parser.add_argument('--video', type=str, required=True, help='Path to input video')
 
     # Grid options
-    parser.add_argument('--rows', type=int, default=4, help='Grid rows (default: 4)')
+    parser.add_argument('--rows', type=int, default=8, help='Grid rows (default: 4)')
     parser.add_argument('--cols', type=int, default=8, help='Grid columns (default: 4)')
     
     # Quantum options

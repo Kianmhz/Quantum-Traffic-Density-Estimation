@@ -54,12 +54,12 @@ PORT = int(os.getenv("PORT", "8001"))
 #   "videos/demo.mp4"
 VIDEO_SOURCE = _default_video_source()
 LOOP_VIDEO = _env_bool("LOOP_VIDEO", True)
-TARGET_FPS = int(os.getenv("TARGET_FPS", "12"))
+TARGET_FPS = int(os.getenv("TARGET_FPS", "20"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "80"))
 
 # Vision + occupancy settings
 MODEL_PATH = _env_path("MODEL_PATH", "yolov8n.pt")
-ROWS = int(os.getenv("ROWS", "4"))
+ROWS = int(os.getenv("ROWS", "8"))
 COLS = int(os.getenv("COLS", "8"))
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 YOLO_DEVICE = os.getenv("YOLO_DEVICE", "cuda")
@@ -68,7 +68,11 @@ YOLO_DEVICE = os.getenv("YOLO_DEVICE", "cuda")
 USE_QUANTUM = _env_bool("USE_QUANTUM", False)
 PRECISION_QUBITS = int(os.getenv("PRECISION_QUBITS", "6"))
 SHOTS = int(os.getenv("SHOTS", "512"))
-QUANTUM_EVERY_N = int(os.getenv("QUANTUM_EVERY_N", "10"))
+QUANTUM_EVERY_N = int(os.getenv("QUANTUM_EVERY_N", "5"))
+
+# Metrics export settings
+GRAFANA_PUSH = _env_bool("GRAFANA_PUSH", True)
+GRAFANA_PUSH_EVERY_N = int(os.getenv("GRAFANA_PUSH_EVERY_N", "5"))
 
 # Direction panel settings: vertical, horizontal, or none
 _direction_raw = os.getenv("DIRECTION_SPLIT", "vertical").strip().lower()

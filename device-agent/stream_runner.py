@@ -7,6 +7,7 @@ JPEG frame for MJPEG streaming.
 """
 
 import logging
+import queue
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -26,11 +27,14 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.quantum.quantum_counting import compute_classical_count, quantum_counting
+from src.utils.grafana import push_metrics_to_grafana
 from src.vision.boxes_to_occupancy import boxes_to_occupancy, directional_occupancy
 from src.vision.video_processor import VideoProcessor
 from src.vision.visualization import create_visualization
 
 log = logging.getLogger(__name__)
+
+GRAFANA_QUEUE_MAXSIZE = 256
 
 
 class PipelineStreamRunner:
@@ -138,6 +142,9 @@ class PipelineStreamRunner:
         quantum_executor: Optional[ThreadPoolExecutor] = None
         quantum_future: Optional[Future] = None
         capture = None
+        grafana_queue: Optional[queue.Queue] = None
+        grafana_thread: Optional[threading.Thread] = None
+        dropped_grafana_pushes = 0
 
         try:
             source_path = _resolve_video_source(config.VIDEO_SOURCE)
@@ -161,10 +168,21 @@ class PipelineStreamRunner:
 
             last_quantum_density = None
             last_quantum_count = None
+            last_quantum_metrics = None
             frames_since_quantum = config.QUANTUM_EVERY_N
 
             if config.USE_QUANTUM:
                 quantum_executor = ThreadPoolExecutor(max_workers=1)
+
+            if config.GRAFANA_PUSH:
+                grafana_queue = queue.Queue(maxsize=GRAFANA_QUEUE_MAXSIZE)
+                grafana_thread = threading.Thread(
+                    target=self._grafana_worker,
+                    args=(grafana_queue,),
+                    name="grafana-push-worker",
+                    daemon=True,
+                )
+                grafana_thread.start()
 
             frame_number = 0
 
@@ -181,6 +199,11 @@ class PipelineStreamRunner:
                 frame_h, frame_w = frame.shape[:2]
                 result = processor.process_frame(frame, frame_number=frame_number)
                 frame_number += 1
+                timestamp_ms = (
+                    capture.get(cv2.CAP_PROP_POS_MSEC)
+                    if capture is not None
+                    else float(frame_number)
+                )
 
                 occupancy = boxes_to_occupancy(
                     result.boxes_xyxy,
@@ -217,10 +240,15 @@ class PipelineStreamRunner:
 
                     if quantum_future is not None and quantum_future.done():
                         try:
-                            last_quantum_count, last_quantum_density, _ = quantum_future.result()
+                            (
+                                last_quantum_count,
+                                last_quantum_density,
+                                last_quantum_metrics,
+                            ) = quantum_future.result()
                         except Exception as exc:
                             log.warning("Quantum step failed: %s", exc)
                             last_quantum_count, last_quantum_density = None, None
+                            last_quantum_metrics = None
                         finally:
                             quantum_future = None
 
@@ -250,6 +278,79 @@ class PipelineStreamRunner:
                 if ok_jpg:
                     self._set_latest_frame(buf.tobytes())
 
+                if config.GRAFANA_PUSH:
+                    push_every_n = max(int(config.GRAFANA_PUSH_EVERY_N), 1)
+                    if frame_number % push_every_n == 0:
+                        density_difference = (
+                            (last_quantum_density - classical_density)
+                            if last_quantum_density is not None
+                            else None
+                        )
+                        count_agreement = (
+                            (last_quantum_count == classical_count)
+                            if last_quantum_count is not None
+                            else None
+                        )
+                        error = (
+                            abs(last_quantum_count - classical_count)
+                            if last_quantum_count is not None
+                            else None
+                        )
+                        relative_error_pct = (
+                            (error / classical_count * 100)
+                            if error is not None and classical_count != 0
+                            else None
+                        )
+
+                        payload = {
+                            "classical_count": classical_count,
+                            "quantum_count": last_quantum_count,
+                            "classical_density": classical_density,
+                            "quantum_density": last_quantum_density,
+                            "error": error,
+                            "relative_error_pct": relative_error_pct,
+                            "density_A": direction_data["density_A"] if direction_data else None,
+                            "density_B": direction_data["density_B"] if direction_data else None,
+                            "num_detections": len(result.detections),
+                            "count_agreement": count_agreement,
+                            "theoretical_speedup": (n_regions ** 0.5) if config.USE_QUANTUM else None,
+                            "classical_count_time_ns": (
+                                last_quantum_metrics.classical_count_time_ns if last_quantum_metrics else None
+                            ),
+                            "circuit_build_time_ms": (
+                                last_quantum_metrics.circuit_build_time_ms if last_quantum_metrics else None
+                            ),
+                            "transpile_time_ms": (
+                                last_quantum_metrics.transpile_time_ms if last_quantum_metrics else None
+                            ),
+                            "simulation_run_time_ms": (
+                                last_quantum_metrics.simulation_run_time_ms if last_quantum_metrics else None
+                            ),
+                            "estimated_qpu_time_ns": (
+                                last_quantum_metrics.estimated_qpu_time_ns if last_quantum_metrics else None
+                            ),
+                            "simulation_overhead_ms": (
+                                last_quantum_metrics.simulation_overhead_ms if last_quantum_metrics else None
+                            ),
+                            "circuit_depth": (
+                                last_quantum_metrics.circuit_depth if last_quantum_metrics else None
+                            ),
+                            "estimated_speedup_vs_classical": (
+                                last_quantum_metrics.estimated_speedup_vs_classical if last_quantum_metrics else None
+                            ),
+                        }
+
+                        if grafana_queue is not None:
+                            try:
+                                grafana_queue.put_nowait(payload)
+                            except queue.Full:
+                                dropped_grafana_pushes += 1
+                                if dropped_grafana_pushes % 50 == 1:
+                                    log.warning(
+                                        "Grafana queue full; dropping metrics (%d dropped)",
+                                        dropped_grafana_pushes,
+                                    )
+
                 elapsed = time.perf_counter() - loop_started
                 sleep_for = target_frame_duration - elapsed
                 if sleep_for > 0:
@@ -263,10 +364,38 @@ class PipelineStreamRunner:
                 quantum_future.cancel()
             if quantum_executor is not None:
                 quantum_executor.shutdown(wait=False)
+
+            if grafana_queue is not None:
+                try:
+                    grafana_queue.put_nowait(None)
+                except queue.Full:
+                    pass
+            if grafana_thread is not None:
+                grafana_thread.join(timeout=2)
+
             if capture is not None:
                 capture.release()
             with self._state_lock:
                 self._running = False
+
+    def _grafana_worker(self, grafana_queue: queue.Queue) -> None:
+        while True:
+            try:
+                payload = grafana_queue.get(timeout=0.5)
+            except queue.Empty:
+                if self._stop_event.is_set():
+                    break
+                continue
+
+            if payload is None:
+                break
+
+            try:
+                push_metrics_to_grafana(payload)
+            except Exception as exc:
+                log.warning("Grafana worker push failed: %s", exc)
+            finally:
+                grafana_queue.task_done()
 
 
 def _resolve_video_source(raw_source: str) -> Path:
