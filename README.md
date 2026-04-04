@@ -43,9 +43,15 @@ Capstone/
 │   │   ├── quantum_counting.py   # Core quantum counting algorithm (QPE + Grover)
 │   │   └── demo.py               # Standalone CLI for benchmarking/testing
 │   ├── utils/
-│   │   └── logging.py            # CSV logging and statistics
+│   │   ├── logging.py            # CSV logging and session summaries
+│   │   └── grafana.py            # Optional Grafana/Influx metrics push
 │   └── pipeline.py               # Main video pipeline CLI
+├── device-agent/
+│   ├── agent.py                  # Flask device API (/status, /start, /stop, /video_feed)
+│   ├── config.py                 # .env + environment-based runtime config
+│   └── stream_runner.py          # Background runner + MJPEG stream generator
 ├── logs/                          # Output logs (gitignored)
+├── .env.example
 ├── requirements.txt
 └── README.md
 ```
@@ -67,6 +73,8 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+On first run, Ultralytics downloads the YOLO model (for example, `yolov8n.pt`) if it is not already present.
 
 ### 3. (Optional) GPU Acceleration
 For NVIDIA GPU support (recommended for video processing):
@@ -92,6 +100,19 @@ python -m src.pipeline --video traffic.mp4
 # Classical only (fast, no quantum)
 python -m src.pipeline --video traffic.mp4 --no-quantum
 ```
+
+### Device Agent (for dashboard streaming)
+```bash
+python device-agent/agent.py
+```
+
+Available endpoints:
+- `GET /status`
+- `POST /start`
+- `POST /stop`
+- `GET /video_feed`
+
+The agent loads configuration from `.env` in the project root (see `.env.example`).
 
 ## CLI Reference
 
@@ -132,7 +153,7 @@ python -m src.quantum.demo --random
 ### Video Pipeline CLI
 
 ```
-python -m src.pipeline [OPTIONS]
+python -m src.pipeline --video PATH [OPTIONS]
 ```
 
 #### Input (required)
@@ -143,7 +164,7 @@ python -m src.pipeline [OPTIONS]
 #### Grid Options
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--rows N` | 4 | Grid rows |
+| `--rows N` | 8 | Grid rows |
 | `--cols N` | 8 | Grid columns |
 
 Grid size (rows x cols) must be a power of 2 (e.g., 16, 32, 64). Search qubits are calculated as log2(N).
@@ -165,7 +186,6 @@ Grid size (rows x cols) must be a power of 2 (e.g., 16, 32, 64). Search qubits a
 #### Processing Options
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--confidence F` | 0.5 | YOLO confidence threshold (0.0-1.0) |
 | `--device DEV` | cuda | Device for YOLO: `cpu`, `cuda`, or `mps` |
 
 #### Logging Options
@@ -189,15 +209,43 @@ python -m src.pipeline --video traffic.mp4 --precision 6 --quantum-every 10
 # CPU-only processing
 python -m src.pipeline --video traffic.mp4 --device cpu
 
-# Custom grid (8x8 = 64 regions, needs precision 8)
-python -m src.pipeline --video traffic.mp4 --rows 8 --cols 8 --precision 8
+# Custom grid (8x8 = 64 regions)
+python -m src.pipeline --video traffic.mp4 --rows 8 --cols 8
 
 # Horizontal direction split
 python -m src.pipeline --video traffic.mp4 --split horizontal
 
 # Disable directional breakdown
 python -m src.pipeline --video traffic.mp4 --no-direction
+
+# Push per-frame metrics to Grafana Cloud
+python -m src.pipeline --video traffic.mp4 --grafana
 ```
+
+### Device Agent Runtime Configuration
+
+`device-agent/config.py` reads root `.env` values (or system environment variables), then the API can override a subset at start-time via `POST /start` payload (`video_source`, `rows`, `cols`, `direction_split`).
+
+Common environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEVICE_NAME` | Home PC | Device identifier returned by `/status` |
+| `PORT` | 8001 | Flask server port |
+| `VIDEO_SOURCE` | auto (`traffic_bi.mp4` then `traffic.mp4`) | Input video source |
+| `ROWS` / `COLS` | 8 / 8 | Grid dimensions (rows x cols must be power of 2) |
+| `YOLO_DEVICE` | cuda | Inference device (`cpu`, `cuda`, `mps`) |
+| `USE_QUANTUM` | false | Enable quantum counting in stream mode |
+| `PRECISION_QUBITS` | 6 | QPE precision |
+| `SHOTS` | 512 | Quantum shots |
+| `QUANTUM_EVERY_N` | 5 | Run quantum every N frames |
+| `DIRECTION_SPLIT` | vertical | `vertical`, `horizontal`, or `none` |
+| `START_ON_BOOT` | false | Auto-start stream on agent startup |
+
+For Grafana push in pipeline mode (`--grafana`), configure:
+- `GRAFANA_URL`
+- `GRAFANA_USER`
+- `GRAFANA_TOKEN`
 
 #### Keyboard Controls (during playback)
 | Key | Action |
@@ -359,19 +407,26 @@ When processing video, the pipeline writes to the `logs/` directory:
   | `classical_density` | Classical density (0-1) |
   | `quantum_count` | Quantum estimated count |
   | `quantum_density` | Quantum estimated density (0-1) |
+  | `error` | abs(quantum_count - classical_count) |
+  | `relative_error_pct` | error / classical_count * 100 |
   | `density_A` | Density in direction A region |
   | `density_B` | Density in direction B region |
   | `vehicles_A` | Vehicle count in direction A |
   | `vehicles_B` | Vehicle count in direction B |
-  | `quantum_execution_time_ms` | Quantum circuit execution time |
-  | `density_difference` | abs(quantum_density - classical_density) |
-  | `count_agreement` | 1 if counts match, 0 otherwise |
+  | `classical_count_time_ns` | Classical O(N) reference count time |
+  | `circuit_build_time_ms` | Circuit build overhead |
+  | `transpile_time_ms` | Qiskit transpilation overhead |
+  | `simulation_run_time_ms` | Aer simulator run time |
+  | `estimated_qpu_time_ns` | Modeled real QPU execution time |
+  | `simulation_overhead_ms` | simulation_run_time_ms - estimated_qpu_time_ns |
+  | `circuit_depth` | Quantum circuit depth |
+  | `estimated_speedup_vs_classical` | classical_count_time_ns / estimated_qpu_time_ns |
+  | `density_difference` | quantum_density - classical_density |
+  | `count_agreement` | `true` when quantum_count == classical_count |
   | `grid_size_N` | Total grid cells (rows x cols) |
   | `classical_queries_O_N` | Classical oracle queries (= N) |
   | `quantum_queries_O_sqrtN` | Quantum oracle queries (= sqrt(N)) |
   | `theoretical_speedup` | N / sqrt(N) = sqrt(N) |
-  | `error` | abs(quantum_count - classical_count) |
-  | `relative_error` | error / classical_count * 100% |
 
   > Classical and quantum values in each row are always computed from the same frame snapshot, ensuring a fair comparison.
 
