@@ -235,7 +235,7 @@ Common environment variables:
 | `VIDEO_SOURCE` | auto (`traffic_bi.mp4` then `traffic.mp4`) | Input video source |
 | `ROWS` / `COLS` | 8 / 8 | Grid dimensions (rows x cols must be power of 2) |
 | `YOLO_DEVICE` | cuda | Inference device (`cpu`, `cuda`, `mps`) |
-| `USE_QUANTUM` | false | Enable quantum counting in stream mode |
+| `USE_QUANTUM` | true | Enable quantum counting in stream mode |
 | `PRECISION_QUBITS` | 6 | QPE precision |
 | `SHOTS` | 512 | Quantum shots |
 | `QUANTUM_EVERY_N` | 5 | Run quantum every N frames |

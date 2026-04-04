@@ -36,7 +36,7 @@ Common environment variables:
 | `ROWS` / `COLS` | `8` / `8` | Grid dimensions (rows x cols must be power of 2) |
 | `CONFIDENCE_THRESHOLD` | `0.5` | YOLO detection threshold |
 | `YOLO_DEVICE` | `cuda` | `cpu`, `cuda`, or `mps` |
-| `USE_QUANTUM` | `false` | Enable quantum counting in stream mode |
+| `USE_QUANTUM` | `true` | Enable quantum counting in stream mode |
 | `PRECISION_QUBITS` | `6` | QPE precision qubits |
 | `SHOTS` | `512` | Quantum measurement shots |
 | `QUANTUM_EVERY_N` | `5` | Run quantum every N frames |
