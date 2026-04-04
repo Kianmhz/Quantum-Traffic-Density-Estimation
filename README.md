@@ -74,7 +74,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-On first run, Ultralytics downloads the YOLO model (for example, `yolov8n.pt`) if it is not already present.
+On first run, Ultralytics downloads the YOLO model (for example, `yolov8m.pt`) if it is not already present.
 
 ### 3. (Optional) GPU Acceleration
 For NVIDIA GPU support (recommended for video processing):
@@ -233,7 +233,7 @@ Common environment variables:
 | `DEVICE_NAME` | Home PC | Device identifier returned by `/status` |
 | `PORT` | 8001 | Flask server port |
 | `VIDEO_SOURCE` | auto (`traffic_bi.mp4` then `traffic.mp4`) | Input video source |
-| `ROWS` / `COLS` | 8 / 8 | Grid dimensions (rows x cols must be power of 2) |
+| `ROWS` / `COLS` | 4 / 8 | Grid dimensions (rows x cols must be power of 2) |
 | `YOLO_DEVICE` | cuda | Inference device (`cpu`, `cuda`, `mps`) |
 | `USE_QUANTUM` | true | Enable quantum counting in stream mode |
 | `PRECISION_QUBITS` | 6 | QPE precision |
@@ -435,20 +435,5 @@ When processing video, the pipeline writes to the `logs/` directory:
   | `theoretical_speedup` | N / sqrt(N) = sqrt(N) |
 
   > Classical and quantum values in each row are always computed from the same frame snapshot, ensuring a fair comparison.
-
-- **`logs/summary_YYYYMMDD_HHMMSS.txt`**: Session summary
-  - Configuration used
-  - Accuracy statistics
-  - Error distribution
-
-## Results
-
-Typical accuracy with precision=6 on a 16-region grid:
-
-| Scenario | Classical M | Quantum M | Error |
-|----------|-------------|-----------|-------|
-| Low density (M=2) | 2 | 2 | 0 |
-| Moderate density (M=6) | 6 | 5-6 | <=1 |
-| High density (M=14) | 14 | 14 | 0 |
 
 Average error: **< 1 region** with proper precision settings.

@@ -58,8 +58,8 @@ TARGET_FPS = int(os.getenv("TARGET_FPS", "20"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "80"))
 
 # Vision + occupancy settings
-MODEL_PATH = _env_path("MODEL_PATH", "yolov8n.pt")
-ROWS = int(os.getenv("ROWS", "8"))
+MODEL_PATH = _env_path("MODEL_PATH", "yolov8m.pt")
+ROWS = int(os.getenv("ROWS", "4"))
 COLS = int(os.getenv("COLS", "8"))
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 YOLO_DEVICE = os.getenv("YOLO_DEVICE", "cuda")

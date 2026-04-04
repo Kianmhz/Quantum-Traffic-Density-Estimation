@@ -32,8 +32,8 @@ Common environment variables:
 | `LOOP_VIDEO` | `true` | Loop video when it ends |
 | `TARGET_FPS` | `20` | Processing target FPS |
 | `JPEG_QUALITY` | `80` | MJPEG quality for `/video_feed` |
-| `MODEL_PATH` | `yolov8n.pt` | YOLO model path (auto-downloaded if missing) |
-| `ROWS` / `COLS` | `8` / `8` | Grid dimensions (rows x cols must be power of 2) |
+| `MODEL_PATH` | `yolov8m.pt` | YOLO model path (auto-downloaded if missing) |
+| `ROWS` / `COLS` | `4` / `8` | Grid dimensions (rows x cols must be power of 2) |
 | `CONFIDENCE_THRESHOLD` | `0.5` | YOLO detection threshold |
 | `YOLO_DEVICE` | `cuda` | `cpu`, `cuda`, or `mps` |
 | `USE_QUANTUM` | `true` | Enable quantum counting in stream mode |
