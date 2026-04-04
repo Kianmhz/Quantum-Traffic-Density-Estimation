@@ -42,6 +42,9 @@ Common environment variables:
 | `QUANTUM_EVERY_N` | `5` | Run quantum every N frames |
 | `GRAFANA_PUSH` | `true` | Push metrics when Grafana credentials are configured |
 | `GRAFANA_PUSH_EVERY_N` | `5` | Push every N frames |
+| `GRAFANA_URL` | - | Influx-compatible Grafana write endpoint |
+| `GRAFANA_USER` | - | Grafana numeric user ID |
+| `GRAFANA_TOKEN` | - | Grafana API token (MetricsPublisher) |
 | `DIRECTION_SPLIT` | `vertical` | `vertical`, `horizontal`, or `none` |
 | `SHOW_INFO` | `true` | Overlay panel visibility default |
 | `START_ON_BOOT` | `false` | Auto-start stream when agent process starts |
@@ -89,6 +92,11 @@ PC_AGENT_URL=http://<your-pc-ip>:8001
 ```
 
 If presenting from another machine, ensure both machines are on the same network and allow inbound firewall access for port 8001.
+
+Grafana push notes:
+- API mode (this agent): controlled by `GRAFANA_PUSH` and `GRAFANA_PUSH_EVERY_N`.
+- CLI mode (`python -m src.pipeline`): controlled by `--grafana`.
+- Both modes use the same credentials: `GRAFANA_URL`, `GRAFANA_USER`, `GRAFANA_TOKEN`.
 
 ## 4) Quick API checks
 

@@ -239,10 +239,16 @@ Common environment variables:
 | `PRECISION_QUBITS` | 6 | QPE precision |
 | `SHOTS` | 512 | Quantum shots |
 | `QUANTUM_EVERY_N` | 5 | Run quantum every N frames |
+| `GRAFANA_PUSH` | true | Enable Grafana push in device-agent (API mode) |
+| `GRAFANA_PUSH_EVERY_N` | 5 | Push every N frames in API mode |
 | `DIRECTION_SPLIT` | vertical | `vertical`, `horizontal`, or `none` |
 | `START_ON_BOOT` | false | Auto-start stream on agent startup |
 
-For Grafana push in pipeline mode (`--grafana`), configure:
+Grafana push is available in both modes:
+- CLI pipeline mode: run with `--grafana`.
+- API/stream-runner mode: controlled by `GRAFANA_PUSH` and `GRAFANA_PUSH_EVERY_N`.
+
+For Grafana push in either mode, configure:
 - `GRAFANA_URL`
 - `GRAFANA_USER`
 - `GRAFANA_TOKEN`
