@@ -165,6 +165,9 @@ class PipelineStreamRunner:
         grafana_queue: Optional[queue.Queue] = None
         grafana_thread: Optional[threading.Thread] = None
         dropped_grafana_pushes = 0
+        feeder_thread: Optional[threading.Thread] = None
+        _infer_queue: queue.Queue = queue.Queue(maxsize=2)
+        _feeder_stop = threading.Event()
 
         try:
             source_path = _resolve_video_source(self._video_source)
@@ -204,26 +207,45 @@ class PipelineStreamRunner:
                 )
                 grafana_thread.start()
 
-            frame_number = 0
+            # YOLO feeder: frame reading + inference run on their own thread so the
+            # visualization / encoding loop below is never stalled waiting for YOLO.
+            def _yolo_feeder() -> None:
+                fn = 0
+                try:
+                    while not _feeder_stop.is_set() and not self._stop_event.is_set():
+                        ok, raw = capture.read()
+                        if not ok:
+                            if config.LOOP_VIDEO:
+                                capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                continue
+                            break
+                        ts = capture.get(cv2.CAP_PROP_POS_MSEC)
+                        det = processor.process_frame(raw, frame_number=fn)
+                        fn += 1
+                        try:
+                            _infer_queue.put((det, ts), timeout=1.0)
+                        except queue.Full:
+                            pass  # drop frame rather than stall
+                except Exception:
+                    log.exception("YOLO feeder crashed")
+                finally:
+                    _infer_queue.put(None)  # sentinel
+
+            feeder_thread = threading.Thread(target=_yolo_feeder, daemon=True, name="yolo-feeder")
+            feeder_thread.start()
 
             while not self._stop_event.is_set():
                 loop_started = time.perf_counter()
 
-                ok, frame = capture.read()
-                if not ok:
-                    if config.LOOP_VIDEO:
-                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
+                try:
+                    item = _infer_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is None:
                     break
 
-                frame_h, frame_w = frame.shape[:2]
-                result = processor.process_frame(frame, frame_number=frame_number)
-                frame_number += 1
-                timestamp_ms = (
-                    capture.get(cv2.CAP_PROP_POS_MSEC)
-                    if capture is not None
-                    else float(frame_number)
-                )
+                result, timestamp_ms = item
+                frame_h, frame_w = result.frame.shape[:2]
 
                 occupancy = boxes_to_occupancy(
                     result.boxes_xyxy,
@@ -300,7 +322,7 @@ class PipelineStreamRunner:
 
                 if config.GRAFANA_PUSH:
                     push_every_n = max(int(config.GRAFANA_PUSH_EVERY_N), 1)
-                    if frame_number % push_every_n == 0:
+                    if result.frame_number % push_every_n == 0:
                         density_difference = (
                             (last_quantum_density - classical_density)
                             if last_quantum_density is not None
@@ -380,6 +402,16 @@ class PipelineStreamRunner:
             log.exception("Stream loop crashed")
             self._set_error(str(exc))
         finally:
+            # Stop feeder thread first so it's not using capture when we release it
+            _feeder_stop.set()
+            while True:
+                try:
+                    _infer_queue.get_nowait()
+                except queue.Empty:
+                    break
+            if feeder_thread is not None:
+                feeder_thread.join(timeout=3)
+
             if quantum_future is not None:
                 quantum_future.cancel()
             if quantum_executor is not None:

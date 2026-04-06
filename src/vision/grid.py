@@ -2,9 +2,11 @@
 Grid utilities for dividing an image into regions.
 """
 
+from functools import lru_cache
 from typing import List, Tuple
 
 
+@lru_cache(maxsize=32)
 def make_grid(rows: int, cols: int, image_w: int, image_h: int) -> List[Tuple[int, int, int, int]]:
     """
     Divide an image into a grid of rows x cols regions.
@@ -65,6 +67,7 @@ def index_to_rc(i: int, cols: int) -> Tuple[int, int]:
     return (r, c)
 
 
+@lru_cache(maxsize=16)
 def get_direction_region_indices(
     rows: int,
     cols: int,

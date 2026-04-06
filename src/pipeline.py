@@ -6,7 +6,9 @@ estimation using quantum counting.
 """
 
 import argparse
+import queue as _queue_module
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
 from pathlib import Path
@@ -131,16 +133,61 @@ def process_video_with_quantum(
     logging_executor = ThreadPoolExecutor(max_workers=1)
     quantum_future: Optional[Future] = None
 
+    # YOLO runs on a background thread so the display loop never freezes.
+    # The queue holds at most 2 pre-detected frames; if the main loop is
+    # slower than YOLO the feeder blocks naturally (backpressure).
+    _frame_queue: _queue_module.Queue = _queue_module.Queue(maxsize=2)
+    _yolo_stop = threading.Event()
+
+    def _yolo_worker() -> None:
+        try:
+            for result in processor.process_video(video_path):
+                if _yolo_stop.is_set():
+                    return
+                _frame_queue.put(result)  # blocks when queue is full
+        except Exception as exc:
+            _frame_queue.put(exc)
+        finally:
+            _frame_queue.put(None)  # sentinel — video ended or worker exiting
+
+    yolo_thread = threading.Thread(target=_yolo_worker, daemon=True, name="yolo-inference")
+    yolo_thread.start()
+
+    vis_frame = None  # last rendered frame; re-shown while YOLO processes the next
+
     try:
-        for result in processor.process_video(video_path):
+        while True:
             if paused:
-                key = cv2.waitKey(0) & 0xFF
+                key = cv2.waitKey(30) & 0xFF
                 if key == ord('p'):
                     paused = False
                 elif key == ord('q'):
                     break
                 continue
-            
+
+            # Non-blocking dequeue so the window stays responsive while YOLO is busy
+            try:
+                item = _frame_queue.get_nowait()
+            except _queue_module.Empty:
+                # YOLO hasn't finished the next frame yet — re-display the last
+                # frame so the window doesn't freeze and key events keep firing.
+                if vis_frame is not None:
+                    cv2.imshow("Quantum Traffic Density", vis_frame)
+                key = cv2.waitKey(5) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('p'):
+                    paused = True
+                elif key == ord('h'):
+                    show_info = not show_info
+                continue
+
+            if item is None:
+                break  # video finished
+            if isinstance(item, Exception):
+                raise item
+            result = item
+
             start_time = time.time()  # includes all work: processing + logging + print
             
             # Always build occupancy grid and direction data (needed for visualization every frame)
@@ -333,6 +380,15 @@ def process_video_with_quantum(
                 print(f"\nSaved screenshot: {screenshot_path}")
     
     finally:
+        # Stop the YOLO worker and drain the queue so it can unblock from put()
+        _yolo_stop.set()
+        while True:
+            try:
+                _frame_queue.get_nowait()
+            except _queue_module.Empty:
+                break
+        yolo_thread.join(timeout=3)
+
         if quantum_future is not None:
             quantum_future.cancel()
         quantum_executor.shutdown(wait=False)
