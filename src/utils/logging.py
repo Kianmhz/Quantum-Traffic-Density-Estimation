@@ -46,6 +46,9 @@ class FrameLog:
     classical_queries_O_N: Optional[int] = None
     quantum_queries_O_sqrtN: Optional[float] = None
     theoretical_speedup: Optional[float] = None
+    # --- Actual empirical oracle query counts ---
+    actual_oracle_calls: Optional[int] = None      # real calls made: 2^precision_qubits - 1
+    actual_query_speedup: Optional[float] = None   # classical_queries / actual_oracle_calls
     
     @property
     def error(self) -> Optional[int]:
@@ -153,6 +156,8 @@ class DensityLogger:
             # Theoretical speedup
             'grid_size_N', 'classical_queries_O_N',
             'quantum_queries_O_sqrtN', 'theoretical_speedup',
+            # Actual empirical oracle query counts
+            'actual_oracle_calls', 'actual_query_speedup',
         ]
         
         with open(self.csv_path, 'w', newline='') as f:
@@ -231,6 +236,9 @@ class DensityLogger:
                 log.classical_queries_O_N if log.classical_queries_O_N is not None else "",
                 f"{log.quantum_queries_O_sqrtN:.2f}" if log.quantum_queries_O_sqrtN is not None else "",
                 f"{log.theoretical_speedup:.2f}" if log.theoretical_speedup is not None else "",
+                # Actual empirical oracle query counts
+                log.actual_oracle_calls if log.actual_oracle_calls is not None else "",
+                f"{log.actual_query_speedup:.4f}" if log.actual_query_speedup is not None else "",
             ])
     
     def compute_stats(self) -> SessionStats:
@@ -361,6 +369,17 @@ class DensityLogger:
             sqrt_n = math.sqrt(stats.grid_size_N) if stats.grid_size_N > 0 else 0
             f.write(f"  Quantum queries: O(sqrt(N)) = {sqrt_n:.1f}\n")
             f.write(f"  Theoretical speedup: {stats.theoretical_speedup:.1f}x\n\n")
+
+            # Actual oracle query counts
+            quantum_logs = [l for l in self.logs if l.actual_oracle_calls is not None]
+            if quantum_logs:
+                oracle_calls = quantum_logs[0].actual_oracle_calls
+                query_speedup = quantum_logs[0].actual_query_speedup
+                f.write("Actual Empirical Oracle Query Count:\n")
+                f.write(f"  Classical queries (O(N)):       {stats.grid_size_N}\n")
+                f.write(f"  Quantum oracle calls (2^p - 1): {oracle_calls}\n")
+                f.write(f"  Actual query speedup:           {query_speedup:.2f}x\n")
+                f.write(f"  Note: oracle calls = 2^precision_qubits - 1, constant for fixed N\n\n")
             
             # Error analysis
             f.write("Quantum Estimation Error Analysis:\n")
@@ -416,6 +435,12 @@ class DensityLogger:
         print(f"\nTheoretical Speedup:")
         sqrt_n = math.sqrt(stats.grid_size_N) if stats.grid_size_N > 0 else 0
         print(f"  Grid N={stats.grid_size_N}: O(N)={stats.grid_size_N} vs O(√N)={sqrt_n:.1f} → {stats.theoretical_speedup:.1f}x")
+        oracle_logs = [l for l in self.logs if l.actual_oracle_calls is not None]
+        if oracle_logs:
+            print(f"\nActual Oracle Query Count:")
+            print(f"  Classical queries (O(N)):       {stats.grid_size_N}")
+            print(f"  Quantum oracle calls (2^p - 1): {oracle_logs[0].actual_oracle_calls}")
+            print(f"  Actual query speedup:           {oracle_logs[0].actual_query_speedup:.2f}x")
         print(f"\nQuantum Error Analysis:")
         print(f"  Mean error: {stats.avg_error:.2f} ± {stats.std_error:.2f} regions")
         print(f"  Mean relative error: {stats.avg_relative_error:.2f}%")

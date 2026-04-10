@@ -314,6 +314,8 @@ def process_video_with_quantum(
                         classical_queries_O_N=qm.classical_queries_O_N if qm else N,
                         quantum_queries_O_sqrtN=qm.quantum_queries_O_sqrtN if qm else None,
                         theoretical_speedup=qm.theoretical_speedup if qm else None,
+                        actual_oracle_calls=qm.actual_oracle_calls if qm else None,
+                        actual_query_speedup=qm.actual_query_speedup if qm else None,
                     )
                     logging_executor.submit(logger.log_frame, _log_entry)
                     pending_classical_count = None  # consumed — wait for next trigger

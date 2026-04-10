@@ -85,6 +85,11 @@ class QuantumMetrics:
     theoretical_speedup: float = 0.0
     # Empirical: classical_count_time / estimated_qpu_time
     estimated_speedup_vs_classical: float = 0.0
+    # Actual oracle calls made during QPE circuit construction
+    # = sum(2^k for k in range(precision_qubits)) = 2^precision_qubits - 1
+    actual_oracle_calls: int = 0
+    # Empirical query speedup: classical_queries / actual_oracle_calls
+    actual_query_speedup: float = 0.0
 
 
 def build_oracle(n_qubits: int, marked_indices: List[int]) -> QuantumCircuit:
@@ -320,6 +325,15 @@ def quantum_counting(
             _circuit_cache.pop(next(iter(_circuit_cache)))
         _circuit_cache[cache_key] = (transpiled, circuit_depth, circuit_gate_count)
 
+    # ── Actual oracle call count ──────────────────────────────────────
+    # QPE applies controlled-G^(2^k) for k in 0..precision_qubits-1.
+    # Each application = 1 oracle call, so total = sum(2^k) = 2^p - 1.
+    # This is the real empirical query count, valid on cache hits too.
+    actual_oracle_calls = (2 ** precision_qubits) - 1
+    actual_query_speedup = (
+        classical_queries / actual_oracle_calls if actual_oracle_calls > 0 else 0.0
+    )
+
     # ── Estimated QPU time from query complexity ──────────────────────
     # The quantum advantage is O(√N) oracle queries vs O(N) classical.
     # On real quantum hardware, each oracle query takes comparable time
@@ -438,6 +452,8 @@ def quantum_counting(
         quantum_queries_O_sqrtN=quantum_queries,
         theoretical_speedup=theoretical_speedup,
         estimated_speedup_vs_classical=estimated_speedup_vs_classical,
+        actual_oracle_calls=actual_oracle_calls,
+        actual_query_speedup=actual_query_speedup,
     )
 
     return M_estimated, estimated_density, metrics
