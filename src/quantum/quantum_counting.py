@@ -221,10 +221,11 @@ def quantum_counting(
     if 2 ** n_qubits != N:
         raise ValueError(f"Occupancy length {N} must be a power of 2")
     
-    # Theoretical complexity values (always computed)
+    # Complexity values (always computed)
     classical_queries = N
     quantum_queries = math.sqrt(N)
-    theoretical_speedup = N / quantum_queries if quantum_queries > 0 else 0
+    actual_oracle_calls = (2 ** (precision_qubits-1)) - 1
+    theoretical_speedup = classical_queries / actual_oracle_calls if actual_oracle_calls > 0 else 0
     
     # Find marked indices (in practice, oracle would be a black box)
     marked_indices = [i for i, occ in enumerate(occupancy) if occ == 1]
@@ -328,22 +329,21 @@ def quantum_counting(
     # ── Actual oracle call count ──────────────────────────────────────
     # QPE applies controlled-G^(2^k) for k in 0..precision_qubits-1.
     # Each application = 1 oracle call, so total = sum(2^k) = 2^p - 1.
-    # This is the real empirical query count, valid on cache hits too.
-    actual_oracle_calls = (2 ** precision_qubits) - 1
+    # actual_oracle_calls already computed above (needed for theoretical_speedup).
     actual_query_speedup = (
         classical_queries / actual_oracle_calls if actual_oracle_calls > 0 else 0.0
     )
 
-    # ── Estimated QPU time from query complexity ──────────────────────
-    # The quantum advantage is O(√N) oracle queries vs O(N) classical.
+    # ── Estimated QPU time from actual oracle call count ─────────────
     # On real quantum hardware, each oracle query takes comparable time
-    # to a classical lookup.  Estimated QPU time therefore equals the
-    # classical counting time scaled down by the theoretical speedup.
+    # to a classical lookup.  Estimated QPU time equals the classical
+    # counting time scaled by the ratio of actual oracle calls to N.
+    # actual_oracle_calls = 2^precision_qubits - 1 (from QPE structure).
     # Everything measured by Aer (sim_run) is simulation overhead — on a
     # real QPU you'd just run the circuit at hardware speed.
     estimated_qpu_time_ns = (
-        classical_count_time_ns / theoretical_speedup
-        if theoretical_speedup > 0 else 0.0
+        classical_count_time_ns * actual_oracle_calls / classical_queries
+        if classical_queries > 0 else 0.0
     )
 
     t_start = time.perf_counter()
@@ -431,8 +431,8 @@ def quantum_counting(
         + simulation_run_time_ms
         - (estimated_qpu_time_ns / 1e6)
     )
-    # Speedup equals √N by construction (query-complexity model)
-    estimated_speedup_vs_classical = theoretical_speedup
+    # Speedup based on actual oracle calls vs classical queries
+    estimated_speedup_vs_classical = actual_query_speedup
 
     metrics = QuantumMetrics(
         estimated_M=M_estimated,
