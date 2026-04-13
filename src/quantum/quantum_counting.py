@@ -37,7 +37,7 @@ from qiskit.circuit.library import QFTGate
 
 # ---------------------------------------------------------------------------
 # Module-level cache: avoid rebuilding + re-transpiling identical circuits.
-# Key: (n_qubits, precision_qubits, frozenset(marked_indices))
+# Key: (n_qubits, precision_qubits, marked_count_M)
 # Value: transpiled QuantumCircuit
 # ---------------------------------------------------------------------------
 _circuit_cache: dict = {}
@@ -261,9 +261,11 @@ def quantum_counting(
     classical_count_time_ns = (time.perf_counter() - t_classical) * 1e9
 
     # ------------------------------------------------------------------
-    # Circuit cache lookup — skip rebuild + transpile for known patterns
+    # Circuit cache lookup — skip rebuild + transpile for known patterns.
+    # Quantum counting statistics depend on M (number of marked states),
+    # not the specific marked indices, so canonicalize by M for cache hits.
     # ------------------------------------------------------------------
-    cache_key = (n_qubits, precision_qubits, frozenset(marked_indices))
+    cache_key = (n_qubits, precision_qubits, M_actual)
     backend = _get_backend()
 
     circuit_build_time_ms = 0.0
@@ -276,7 +278,8 @@ def quantum_counting(
     else:
         t_build = time.perf_counter()
         # Build oracle and Grover operator
-        oracle = build_oracle(n_qubits, marked_indices)
+        canonical_marked_indices = list(range(M_actual))
+        oracle = build_oracle(n_qubits, canonical_marked_indices)
         grover_op = build_grover_operator(n_qubits, oracle)
 
         # Create quantum counting circuit
