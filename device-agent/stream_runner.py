@@ -358,7 +358,6 @@ class PipelineStreamRunner:
                             "density_B": direction_data["density_B"] if direction_data else None,
                             "num_detections": len(result.detections),
                             "count_agreement": count_agreement,
-                            "theoretical_speedup": (n_regions ** 0.5) if config.USE_QUANTUM else None,
                             "classical_count_time_ns": (
                                 last_quantum_metrics.classical_count_time_ns if last_quantum_metrics else None
                             ),
@@ -382,6 +381,21 @@ class PipelineStreamRunner:
                             ),
                             "estimated_speedup_vs_classical": (
                                 last_quantum_metrics.estimated_speedup_vs_classical if last_quantum_metrics else None
+                            ),
+                            "classical_queries_O_N": (
+                                last_quantum_metrics.classical_queries_O_N if last_quantum_metrics else None
+                            ),
+                            "quantum_queries_O_sqrtN": (
+                                last_quantum_metrics.quantum_queries_O_sqrtN if last_quantum_metrics else None
+                            ),
+                            "theoretical_speedup": (
+                                last_quantum_metrics.theoretical_speedup if last_quantum_metrics else None
+                            ),
+                            "actual_oracle_calls": (
+                                last_quantum_metrics.actual_oracle_calls if last_quantum_metrics else None
+                            ),
+                            "actual_query_speedup": (
+                                last_quantum_metrics.actual_query_speedup if last_quantum_metrics else None
                             ),
                         }
 
