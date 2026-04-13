@@ -47,7 +47,8 @@ def start():
     rows = int(body["rows"]) if body.get("rows") is not None else None
     cols = int(body["cols"]) if body.get("cols") is not None else None
     direction_split = body["direction_split"] if "direction_split" in body else "UNSET"
-    success, message = runner.start(video_source=video_source, rows=rows, cols=cols, direction_split=direction_split)
+    precision_qubits = int(body["precision_qubits"]) if body.get("precision_qubits") is not None else None
+    success, message = runner.start(video_source=video_source, rows=rows, cols=cols, direction_split=direction_split, precision_qubits=precision_qubits)
     code = 200 if success else 409
     return jsonify({"success": success, "message": message}), code
 

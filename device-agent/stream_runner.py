@@ -56,6 +56,7 @@ class PipelineStreamRunner:
         self._rows: int = config.ROWS
         self._cols: int = config.COLS
         self._direction_split: Optional[str] = config.DIRECTION_SPLIT
+        self._precision_qubits: int = config.PRECISION_QUBITS
 
     def is_running(self) -> bool:
         with self._state_lock:
@@ -72,6 +73,7 @@ class PipelineStreamRunner:
         rows: Optional[int] = None,
         cols: Optional[int] = None,
         direction_split: Optional[str] = "UNSET",
+        precision_qubits: Optional[int] = None,
     ) -> tuple[bool, str]:
         if self.is_running():
             return False, "Already running"
@@ -86,6 +88,7 @@ class PipelineStreamRunner:
         self._rows = effective_rows
         self._cols = effective_cols
         self._direction_split = config.DIRECTION_SPLIT if direction_split == "UNSET" else direction_split
+        self._precision_qubits = precision_qubits if precision_qubits is not None else config.PRECISION_QUBITS
 
         self._stop_event.clear()
         with self._state_lock:
@@ -273,7 +276,7 @@ class PipelineStreamRunner:
                         quantum_future = quantum_executor.submit(
                             quantum_counting,
                             list(occupancy),
-                            config.PRECISION_QUBITS,
+                            self._precision_qubits,
                             config.SHOTS,
                         )
                         frames_since_quantum = 0
