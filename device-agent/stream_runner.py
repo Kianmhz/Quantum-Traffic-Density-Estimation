@@ -350,12 +350,12 @@ class PipelineStreamRunner:
                         payload = {
                             "classical_count": classical_count,
                             "quantum_count": last_quantum_count,
-                            "classical_density": classical_density,
-                            "quantum_density": last_quantum_density,
+                            "classical_density": classical_density * 100,
+                            "quantum_density": last_quantum_density * 100 if last_quantum_density is not None else None,
                             "error": error,
                             "relative_error_pct": relative_error_pct,
-                            "density_A": direction_data["density_A"] if direction_data else None,
-                            "density_B": direction_data["density_B"] if direction_data else None,
+                            "density_A": direction_data["density_A"] * 100 if direction_data else None,
+                            "density_B": direction_data["density_B"] * 100 if direction_data else None,
                             "num_detections": len(result.detections),
                             "count_agreement": count_agreement,
                             "classical_count_time_ns": (
