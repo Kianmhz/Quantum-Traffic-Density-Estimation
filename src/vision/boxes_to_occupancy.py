@@ -12,14 +12,23 @@ def boxes_to_occupancy(
     rows: int,
     cols: int,
     image_w: int,
-    image_h: int
+    image_h: int,
+    overlap_threshold: float = 0.3,
+    box_coverage_threshold: float = 0.5,
 ) -> List[int]:
     """
     Convert a list of bounding boxes to a binary occupancy grid.
 
-    Each vehicle is assigned to exactly one cell — the cell that contains its
-    centre point.  This avoids double-counting vehicles that straddle a cell
-    boundary.
+    A cell is marked occupied when EITHER:
+    - the bounding box covers at least ``overlap_threshold`` of the cell's
+      area (handles large vehicles spanning multiple cells), OR
+    - the cell covers at least ``box_coverage_threshold`` of the bounding
+      box's own area (handles small/distant vehicles whose box is smaller
+      than a single cell).
+
+    This prevents edge-grazing boxes from spuriously activating adjacent
+    cells while ensuring distant vehicles with small bounding boxes still
+    trigger the cell they occupy.
 
     Args:
         boxes_xyxy: List of (x1, y1, x2, y2) bounding boxes (e.g., from YOLO).
@@ -27,6 +36,13 @@ def boxes_to_occupancy(
         cols: Number of columns in the grid.
         image_w: Image width in pixels.
         image_h: Image height in pixels.
+        overlap_threshold: Minimum fraction of a cell's area that must be
+            covered by the bounding box for the cell to be marked occupied.
+            Range [0, 1]; default 0.3.
+        box_coverage_threshold: Minimum fraction of the bounding box's own
+            area that must lie within a cell for the cell to be marked
+            occupied. Handles small/distant objects whose box is smaller
+            than a single cell. Range [0, 1]; default 0.5.
 
     Returns:
         List of length rows*cols with 1 for occupied regions, 0 otherwise.
@@ -37,16 +53,31 @@ def boxes_to_occupancy(
 
     cell_w = image_w / cols
     cell_h = image_h / rows
+    cell_area = cell_w * cell_h
 
     for box in boxes_xyxy:
         x1, y1, x2, y2 = box
-        cx = (x1 + x2) / 2
-        cy = (y1 + y2) / 2
+        box_area = max((x2 - x1) * (y2 - y1), 1)
 
-        c = min(int(cx / cell_w), cols - 1)
-        r = min(int(cy / cell_h), rows - 1)
+        c0 = min(int(x1 / cell_w), cols - 1)
+        r0 = min(int(y1 / cell_h), rows - 1)
+        c1 = min(int(x2 / cell_w), cols - 1)
+        r1 = min(int(y2 / cell_h), rows - 1)
 
-        occupancy[r * cols + c] = 1
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                cell_x1 = c * cell_w
+                cell_y1 = r * cell_h
+                cell_x2 = cell_x1 + cell_w
+                cell_y2 = cell_y1 + cell_h
+
+                inter_w = max(0.0, min(x2, cell_x2) - max(x1, cell_x1))
+                inter_h = max(0.0, min(y2, cell_y2) - max(y1, cell_y1))
+                inter_area = inter_w * inter_h
+
+                if (inter_area / cell_area >= overlap_threshold or
+                        inter_area / box_area >= box_coverage_threshold):
+                    occupancy[r * cols + c] = 1
 
     return occupancy
 
@@ -105,7 +136,9 @@ def directional_occupancy(
     cols: int,
     image_w: int,
     image_h: int,
-    split: str = "vertical"
+    split: str = "vertical",
+    overlap_threshold: float = 0.3,
+    box_coverage_threshold: float = 0.5,
 ) -> Dict[str, object]:
     """
     Compute per-direction occupancy and density.
@@ -121,6 +154,11 @@ def directional_occupancy(
         image_w: Image width.
         image_h: Image height.
         split: "vertical" or "horizontal".
+        overlap_threshold: Passed through to boxes_to_occupancy; minimum cell
+            overlap fraction for a cell to be marked occupied.
+        box_coverage_threshold: Passed through to boxes_to_occupancy; minimum
+            fraction of the box's area that must intersect a cell for the
+            cell to be marked occupied.
 
     Returns:
         Dict with keys:
@@ -135,8 +173,12 @@ def directional_occupancy(
     )
 
     # Full occupancy using only direction-specific boxes
-    occupancy_A = boxes_to_occupancy(boxes_A, rows, cols, image_w, image_h)
-    occupancy_B = boxes_to_occupancy(boxes_B, rows, cols, image_w, image_h)
+    occupancy_A = boxes_to_occupancy(
+        boxes_A, rows, cols, image_w, image_h, overlap_threshold, box_coverage_threshold
+    )
+    occupancy_B = boxes_to_occupancy(
+        boxes_B, rows, cols, image_w, image_h, overlap_threshold, box_coverage_threshold
+    )
 
     # Region indices for each half
     indices_A, indices_B = get_direction_region_indices(rows, cols, split)
